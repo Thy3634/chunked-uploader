@@ -39,6 +39,22 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     /** The error that occurred while uploading */
     get error() { return this.#error }
 
+    #onLine: boolean
+    /** Is network online. 
+     * - When it is set to `false`, the upload will be paused. When it is set to `true`, the upload will be resumed. 
+     * - If `window` is available, automatically update, and pause/resume the upload.
+     * @default If `navigator` is available, use the value of `navigator.onLine`, otherwise  `true`.
+     */
+    get onLine() { return this.#onLine }
+    set onLine(value) {
+        this.#onLine = value
+        if (value && this.#status === 'paused') {
+            this.resume()
+        } else if (!value && this.#status === 'pending') {
+            this.pause()
+        }
+    }
+
     /**
      * @param file 
      * @param requestInfo 
@@ -80,6 +96,13 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             }
             return hasher.digest()
         })
+
+        this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('online', this.#ononline)
+            window.addEventListener('offline', this.#onoffline)
+        }
     }
 
     static fromChunks<T = any, R extends ResponseType = 'json'>(chunks: Chunk[], fileInfo: FileInfo, requestInfo: RequestInfo | ((chunk: Chunk, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<R>) {
@@ -110,6 +133,13 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     async #uploadChunks() {
+        if (this.onLine === false) {
+            this.#error = new Error('offline')
+            this.#error.name = 'OfflineError'
+            this.#status = 'paused'
+            this.#dispatchEventByType('pause')
+            return
+        }
         try {
             this.#status = 'pending'
             const response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
@@ -175,6 +205,14 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         if (this.#status !== 'paused') return false
         this.#dispatchEventByType('resume')
         return await this.#uploadChunks()
+    }
+
+    #ononline(_e: Event) {
+        this.onLine = true
+    }
+
+    #onoffline(_e: Event) {
+        this.onLine = false
     }
 
     addEventListener(type: ChunkedUploaderEventType, callback: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
