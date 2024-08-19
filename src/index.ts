@@ -78,7 +78,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             body: (chunk: Chunk) => chunk.blob,
             headers: async (chunk: Chunk) => ({
                 'Range': `bytes=${chunk.start}-${chunk.end - 1}`,
-                'Content-Digest': `md5=:${hexStringTobase64(await chunk.blob.arrayBuffer().then(buffer => md5(new Uint8Array(buffer))))}:`
+                'Content-Digest': `md5=:${hexStringToBase64(await chunk.blob.arrayBuffer().then(buffer => md5(new Uint8Array(buffer))))}:`
             })
         })
 
@@ -224,23 +224,23 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     /** Fired when the upload has started */
-    onstart?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onstart?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired when an error occurs during the upload */
-    onerror?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onerror?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired periodically as any chunk uploaded */
-    onprogress?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onprogress?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired when the upload has been aborted: for instance because the program called `ChunkedUploader.abort()`. */
-    onabort?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onabort?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired when the upload has been successfully completed */
-    onsuccess?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onsuccess?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired when the upload has completed, successfully or not. */
-    onend?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onend?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired when the upload has been paused: for instance because the program called `ChunkedUploader.pause()` */
-    onpause?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onpause?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
     /** Fired when the upload has been resumed: for instance because the program called `ChunkedUploader.resume()` */
-    onresume?: ((event: ChunkedUploaderEvent) => void) = undefined
+    onresume?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
 
-    dispatchEvent(event: ChunkedUploaderEvent): boolean {
+    dispatchEvent(event: ChunkedUploaderEvent<T, R>): boolean {
         const method = `on${event.type}` as `on${ChunkedUploaderEventType}`
         if (typeof this[method] === 'function')
             this[method](event)
@@ -248,14 +248,25 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     #dispatchEventByType(type: ChunkedUploaderEventType) {
-        const event = new ChunkedUploaderEvent(type, this)
+        const event = new ChunkedUploaderEvent<T, R>(type, this)
         this.dispatchEvent(event)
     }
 }
 
-class ChunkedUploaderEvent extends ProgressEvent {
-    constructor(type: ChunkedUploaderEventType, target: any) {
-        super(type, target)
+class ChunkedUploaderEvent<T = any, R extends ResponseType = 'json'> extends Event {
+    /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/ProgressEvent/lengthComputable) */
+    readonly lengthComputable: boolean = true
+    /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/ProgressEvent/loaded) */
+    readonly loaded: number
+    readonly target: ChunkedUploader<T, R>
+    /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/ProgressEvent/total) */
+    readonly total: number
+
+    constructor(type: ChunkedUploaderEventType, target: ChunkedUploader<T, R>, eventInitDict?: EventInit) {
+        super(type, eventInitDict)
+        this.target = target
+        this.total = target.total
+        this.loaded = target.loaded
     }
 }
 
@@ -296,7 +307,7 @@ type RequestOptions<R extends ResponseType = ResponseType> = Omit<FetchOptions<R
     retryDelay?: number
     /**
      * @link [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range) [Content-Digest](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Digest)
-     * @default (chunk) => { 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${await chunk.hash}:` }
+     * @default (chunk) => { 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5hash}:` }
      * 
      */
     headers?: HeadersInit | ((chunk: Chunk, fileInfo: FileInfo) => HeadersInit | Promise<HeadersInit>)
@@ -323,6 +334,6 @@ interface Chunk {
 
 type FileInfo = Pick<File, 'name' | 'size' | 'lastModified'>
 
-function hexStringTobase64(hexString: string) {
+function hexStringToBase64(hexString: string) {
     return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
 }

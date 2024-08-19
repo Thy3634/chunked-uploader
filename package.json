@@ -14,7 +14,11 @@
     "test": "pnpm lint && pnpm test:types && vitest run --coverage",
     "test:types": "tsc --noEmit --skipLibCheck"
   },
-  "keywords": [],
+  "keywords": [
+    "chunked-upload",
+    "upload",
+    "worker"
+  ],
   "type": "module",
   "author": "thy3634",
   "license": "MIT",
@@ -47,11 +51,17 @@
     "changelogen": "^0.5.5",
     "eslint": "^9.8.0",
     "eslint-config-unjs": "^0.3.2",
+    "h3": "^1.12.0",
     "jiti": "^2.0.0-beta.3",
+    "listhen": "^1.7.2",
     "prettier": "^3.3.3",
     "typescript": "^5.5.4",
+    "ufo": "^1.5.4",
     "unbuild": "^3.0.0-rc.7",
     "vitest": "^2.0.5"
   },
-  "packageManager": "pnpm@9.7.0"
+  "packageManager": "pnpm@9.7.0",
+  "engines": {
+    "node": ">= 20"
+  }
 }
