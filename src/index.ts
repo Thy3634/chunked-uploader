@@ -217,30 +217,30 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         this.onLine = false
     }
 
-    addEventListener(type: ChunkedUploaderEventType, callback: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
-        super.addEventListener(type, callback, options)
+    addEventListener(type: ChunkedUploaderEventType, callback: ChunkedUploaderEventListener | { handleEvent: ChunkedUploaderEventListener } | null, options?: AddEventListenerOptions | boolean): void {
+        super.addEventListener(type, callback as EventListenerOrEventListenerObject, options)
     }
 
-    removeEventListener(type: ChunkedUploaderEventType, callback: EventListenerOrEventListenerObject | null, options?: EventListenerOptions | boolean): void {
-        super.removeEventListener(type, callback, options)
+    removeEventListener(type: ChunkedUploaderEventType, callback: ChunkedUploaderEventListener | { handleEvent: ChunkedUploaderEventListener } | null, options?: EventListenerOptions | boolean): void {
+        super.removeEventListener(type, callback as EventListenerOrEventListenerObject, options)
     }
 
     /** Fired when the upload has started */
-    onstart?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onstart?: ChunkedUploaderEventListener = undefined
     /** Fired when an error occurs during the upload */
-    onerror?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onerror?: ChunkedUploaderEventListener = undefined
     /** Fired periodically as any chunk uploaded */
-    onprogress?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onprogress?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been aborted: for instance because the program called `ChunkedUploader.abort()`. */
-    onabort?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onabort?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been successfully completed */
-    onsuccess?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onsuccess?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has completed, successfully or not. */
-    onend?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onend?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been paused: for instance because the program called `ChunkedUploader.pause()` */
-    onpause?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onpause?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been resumed: for instance because the program called `ChunkedUploader.resume()` */
-    onresume?: ((event: ChunkedUploaderEvent<T, R>) => void) = undefined
+    onresume?: ChunkedUploaderEventListener = undefined
 
     dispatchEvent(event: ChunkedUploaderEvent<T, R>): boolean {
         const method = `on${event.type}` as `on${ChunkedUploaderEventType}`
@@ -270,6 +270,10 @@ class ChunkedUploaderEvent<T = any, R extends ResponseType = 'json'> extends Eve
         this.total = target.total
         this.loaded = target.loaded
     }
+}
+
+interface ChunkedUploaderEventListener<T = any, R extends ResponseType = ResponseType> {
+    (event: ChunkedUploaderEvent<T, R>): void
 }
 
 type ChunkedUploaderEventType = 'progress' | 'success' | 'error' | 'abort' | 'start' | 'end' | 'pause' | 'resume'
