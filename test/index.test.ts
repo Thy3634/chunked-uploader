@@ -18,7 +18,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname, extname } from "node:path"
 import { randomUUID } from "node:crypto"
-import { existsSync, openAsBlob, createWriteStream, WriteStream } from "node:fs"
+import { existsSync, openAsBlob, createWriteStream } from "node:fs"
 
 import { ofetch } from "ofetch"
 import { ChunkedUploader } from '../src'
@@ -29,6 +29,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
     const getURL = (url: string) => joinURL(listener.url, url);
 
     const location = dirname(fileURLToPath(import.meta.url))
+    let failed = 0
 
     beforeAll(async () => {
         const app = createApp()
@@ -51,19 +52,25 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
             ).post(
                 "/chunked-upload/:id/:i",
                 eventHandler(async (event) => {
-                    const { id, i } = getRouterParams(event)
+                    const { id } = getRouterParams(event)
                     const confPath = resolve(location, '.temp', `${id}.json`)
                     if (!existsSync(confPath))
                         throw createError({ status: 400 })
 
-                    const { chunkSize, filename, fileSize } = JSON.parse(await readFile(confPath, 'utf8'))
+                    const { filename } = JSON.parse(await readFile(confPath, 'utf8'))
                     const range = getHeader(event, 'Range')
                     const contentDigest = getHeader(event, 'Content-Digest')
                     const rangeExp = /^bytes=(\d+)-(\d+)$/
                     const contentDigestExp = /^md5=:(.+):$/
-                    const [_, start, end] = rangeExp.exec(range!)!.map((it) => Number.parseInt(it))
+                    const [_, start] = rangeExp.exec(range!)!.map((it) => Number.parseInt(it))
                     const chunk = (await readRawBody(event, false))!
                     console.assert(hexStringToBase64(await md5(chunk)) === contentDigestExp.exec(contentDigest!)![1], 'hash mismatch')
+
+                    // make a chunk upload failed
+                    if (failed < 1) {
+                        failed++
+                        throw createError({ status: 408 })
+                    }
 
                     const path = resolve(location, '.temp', `${id}${extname(filename)}`)
                     if (!existsSync(path))
@@ -110,10 +117,48 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         })
         const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
 
-        uploader.onerror = (event) => console.error(event.target.error)
-
         const responseList = await uploader.start()
         expect(responseList?.length === Math.ceil(file.size / 1024 / 1024 / 5)).toBeTruthy()
+        expect(await uploader.hash === await md5(new Uint8Array(await file.arrayBuffer())))
+    })
+
+    it('offline', async () => {
+        const file = new File([await openAsBlob(resolve(location, 'test.jpg'))], 'test.jpg')
+        // init
+        const { id } = await ofetch(getURL('/chunked-upload'), {
+            method: 'POST',
+            body: {
+                chunkSize: 1024 * 1024 * 5,
+                fileSize: file.size,
+                filename: file.name
+            }
+        })
+        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        uploader.onLine = false
+
+        const responseList = await uploader.start()
+        expect(responseList).toBeFalsy()
+    })
+
+    it('offline and reconnect', async () => {
+        const file = new File([await openAsBlob(resolve(location, 'test.jpg'))], 'test.jpg')
+        // init
+        const { id } = await ofetch(getURL('/chunked-upload'), {
+            method: 'POST',
+            body: {
+                chunkSize: 1024 * 1024 * 5,
+                fileSize: file.size,
+                filename: file.name
+            }
+        })
+        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        uploader.onLine = false
+
+        const responseList = await uploader.start()
+        expect(responseList).toBeFalsy()
+
+        uploader.onLine = true
+        await new Promise((resolve) => uploader.addEventListener('success', resolve))
         expect(await uploader.hash === await md5(new Uint8Array(await file.arrayBuffer())))
     })
 })
