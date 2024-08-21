@@ -6,14 +6,15 @@ import {
     createApp,
     createError,
     eventHandler,
-    getHeaders,
+    getHeader,
     getRouterParams,
     readBody,
     readRawBody,
     setHeader,
     toNodeListener,
+    createRouter,
 } from "h3"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname, extname } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -30,99 +31,70 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
     const location = dirname(fileURLToPath(import.meta.url))
 
     beforeAll(async () => {
-        const writeStreamPool = new Map<string, WriteStream>()
-
         const app = createApp()
-            .use(
+        const router = createRouter()
+            .post(
                 "/chunked-upload",
                 eventHandler(async (event) => {
                     assertMethod(event, 'POST')
                     const body = await readBody(event)
-                    console.assert(body?.chunkSize === 1024 * 1024 * 5)
-                    console.assert(typeof body?.fileSize === 'number')
-                    console.assert(typeof body?.filename === 'string')
+                    console.assert(body?.chunkSize === 1024 * 1024 * 5, 'chunkSize')
+                    console.assert(typeof body?.fileSize === 'number', 'fileSize')
+                    console.assert(typeof body?.filename === 'string', 'filename')
                     const id = randomUUID()
                     setHeader(event, 'ETag', id)
-                    if (!existsSync(resolve(location, '.temp', id)))
-                        await mkdir(resolve(location, '.temp', id), { recursive: true })
-                    const confPath = resolve(location, '.temp', id, 'conf.json')
-                    await writeFile(confPath, JSON.stringify(body), { encoding: 'utf8', flag: 'w' })
+                    if (!existsSync(resolve(location, '.temp')))
+                        await mkdir(resolve(location, '.temp'))
+                    await writeFile(resolve(location, '.temp', `${id}.json`), JSON.stringify(body), { encoding: 'utf8', flag: 'w' })
                     return { id }
                 })
-            )
-            .use(
-                "/chunked-upload-existed",
+            ).post(
+                "/chunked-upload/:id/:i",
                 eventHandler(async (event) => {
-                    assertMethod(event, 'POST')
-                    const body = await readBody(event)
-                    console.assert(body?.chunkSize === 1024 * 1024 * 5)
-                    console.assert(typeof body?.fileSize === 'number')
-                    console.assert(typeof body?.hash === 'string')
-                    const id = randomUUID()
-                    setHeader(event, 'ETag', id)
-                    const chunkLength = Math.ceil(body.fileSize / body.chunkSize)
-                    return { id, chunkLength, chunkLoaded: chunkLength }
-                })
-            )
-            .use(
-                "/chunked-upload/[id]/[i]",
-                eventHandler(async (event) => {
-                    const { id } = getRouterParams(event)
-                    const confPath = resolve(location, '.temp', id, 'conf.json')
-                    console.log(id)
-                    if (existsSync(confPath)) {
-                        const { chunkSize, filename, fileSize } = JSON.parse(await readFile(confPath, 'utf8'))
-                        const { range, "Content-Digest": contentDigest } = getHeaders(event)
-                        const rangeExp = /^bytes=(\d+)-(\d+)$/
-                        expect(range).toMatch(rangeExp)
-                        const contentDigestExp = /^md5=:(\s+)$/
-                        expect(contentDigest).toMatch(contentDigestExp)
-                        const [start, end] = rangeExp.exec(range!)!.map((it) => Number.parseInt(it))
-                        const chunk = (await readRawBody(event, false))!
-                        expect(chunkSize).toBe(end + 1 - start)
-                        expect(md5(chunk)).toBe(contentDigestExp.exec(contentDigest!)![1])
+                    const { id, i } = getRouterParams(event)
+                    const confPath = resolve(location, '.temp', `${id}.json`)
+                    if (!existsSync(confPath))
+                        throw createError({ status: 400 })
 
-                        const ws = writeStreamPool.get(id) ?? createWriteStream(resolve(location, '.temp', `${id}${extname(filename)}`), {
-                            start,
-                            flags: 'w',
-                            encoding: 'binary'
-                        })
-                        writeStreamPool.set(id, ws)
-                        console.log(ws)
-                        if (ws.writableNeedDrain)
-                            await new Promise((resolve) => ws.once('drain', resolve))
-                        await new Promise<void>((resolve, reject) => {
-                            ws.write(chunk, (error) => {
-                                if (error) reject(error)
-                                else resolve()
-                            })
-                        })
-                        if (ws.bytesWritten >= fileSize) {
-                            await new Promise<void>((resolve, reject) => {
-                                ws.end(() => ws.close((err) => {
-                                    if (err) reject(err)
-                                    else resolve()
-                                }))
-                            })
-                            writeStreamPool.delete(id)
-                        }
-                    } else {
-                        createError({ status: 404 })
-                    }
-                })
-            )
-            .use(
-                "/chunked-upload-timeout/[id]/[i]",
-                eventHandler(() => {
-                    createError({ status: 408 })
-                })
-            )
+                    const { chunkSize, filename, fileSize } = JSON.parse(await readFile(confPath, 'utf8'))
+                    const range = getHeader(event, 'Range')
+                    const contentDigest = getHeader(event, 'Content-Digest')
+                    const rangeExp = /^bytes=(\d+)-(\d+)$/
+                    const contentDigestExp = /^md5=:(.+):$/
+                    const [_, start, end] = rangeExp.exec(range!)!.map((it) => Number.parseInt(it))
+                    const chunk = (await readRawBody(event, false))!
+                    console.assert(hexStringToBase64(await md5(chunk)) === contentDigestExp.exec(contentDigest!)![1], 'hash mismatch')
 
+                    const path = resolve(location, '.temp', `${id}${extname(filename)}`)
+                    if (!existsSync(path))
+                        await writeFile(path, [])
+                    const ws = createWriteStream(path, {
+                        start,
+                        flags: 'r+',
+                        encoding: 'binary'
+                    })
+                    await new Promise<void>((resolve, reject) => {
+                        ws.write(chunk, (error) => {
+                            if (error) reject(error)
+                            else resolve()
+                        })
+                    })
+                    await new Promise<void>((resolve, reject) => {
+                        ws.close((err) => {
+                            if (err) reject(err)
+                            else resolve()
+                        })
+                    })
+                    return ''
+                })
+            )
+        app.use(router)
         listener = await listen(toNodeListener(app))
     })
 
-    afterAll(() => {
+    afterAll(async () => {
         listener.close().catch(console.error);
+        await rm(resolve(location, '.temp'), { recursive: true })
     })
 
     it('ok', async () => {
@@ -136,11 +108,17 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, ({ index }) => getURL(`/chunked-upload/${id}/${index}`))
+        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
 
-        uploader.onerror = console.error
+        uploader.onerror = (event) => console.error(event.target.error)
 
         const responseList = await uploader.start()
         expect(responseList?.length === Math.ceil(file.size / 1024 / 1024 / 5)).toBeTruthy()
+        expect(await uploader.hash === await md5(new Uint8Array(await file.arrayBuffer())))
     })
 })
+
+function hexStringToBase64(hexString: string) {
+    return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
+}
+

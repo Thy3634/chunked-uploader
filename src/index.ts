@@ -29,7 +29,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     get chunks() { return this.#chunks }
 
     #hash: Promise<string>
-    /** A promise that resolves to the MD5 hash of the file's data */
+    /** A promise that resolves to the MD5 hash (hex) of the file's data */
     get hash() { return this.#hash }
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
@@ -70,6 +70,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         })
         this.#requestInfo = requestInfo
         this.#requestOptions = defu(requestOptions, {
+            method: 'POST',
             signal: this.#abortController.signal,
             chunkSize: 1024 * 1024 * 5,
             instance: ofetch,
@@ -79,7 +80,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             headers: async (chunk: Chunk) => ({
                 'Range': `bytes=${chunk.start}-${chunk.end - 1}`,
                 'Content-Digest': `md5=:${hexStringToBase64(await chunk.blob.arrayBuffer().then(buffer => md5(new Uint8Array(buffer))))}:`
-            })
+            }) as HeadersInit
         })
 
         this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
@@ -126,6 +127,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
      * start the upload, if the upload is already started, do nothing
      * - property `status` will be set to 'pending'
      * - event `start` will be dispatched
+     * - if `onLine` is false, pause
      */
     async start() {
         if (this.#status !== 'idle') return
@@ -278,6 +280,10 @@ type ChunkedUploaderEventType = 'progress' | 'success' | 'error' | 'abort' | 'st
  * @template R - The expected response type.
  */
 type RequestOptions<R extends ResponseType = ResponseType> = Omit<FetchOptions<R>, 'body'> & {
+    /** A string to set request's method.
+     * @default 'POST'
+     */
+    method?: string;
     /**
      * 
      * @param chunk chunk, including index, blob, start, end, status, hash
