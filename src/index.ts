@@ -78,6 +78,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             retryDelay: 3000,
             body: (chunk: Chunk<T, R>) => chunk.blob,
             headers: async (chunk: Chunk<T, R>) => ({
+                'Content-Type': 'application/octet-stream',
                 'Range': `bytes=${chunk.start}-${chunk.end - 1}`,
                 'Content-Digest': `md5=:${hexStringToBase64(await chunk.blob.arrayBuffer().then(buffer => md5(new Uint8Array(buffer))))}:`
             }) as HeadersInit
@@ -315,8 +316,7 @@ type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<Fetch
     retryDelay?: number
     /**
      * @link [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range) [Content-Digest](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Digest)
-     * @default (chunk) => { 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5hash}:` }
-     * 
+     * @default (chunk) => { 'Content-Type': 'application/octet-stream', 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5ofChunk}:` }
      */
     headers?: HeadersInit | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => HeadersInit | Promise<HeadersInit>)
 }
@@ -338,6 +338,7 @@ interface Chunk<T = any, R extends ResponseType = 'json'> {
     end: number
     /** The uploading status of this chunk. when error occurred, reset to 'idle' */
     status: 'pending' | 'success' | 'idle'
+    /** Response of chunk upload */
     response?: Promise<MappedResponseType<R, T>>
 }
 

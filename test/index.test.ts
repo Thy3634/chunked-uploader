@@ -72,7 +72,6 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 eventHandler(async (event) => {
                     assertMethod(event, 'POST')
                     const body = await readBody(event)
-                    console.assert(body?.chunkSize === 1024 * 1024 * 5, 'chunkSize')
                     console.assert(typeof body?.fileSize === 'number', 'fileSize')
                     console.assert(typeof body?.filename === 'string', 'filename')
                     const id = randomUUID()
@@ -147,7 +146,6 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         const { id } = await ofetch(getURL('/chunked-upload'), {
             method: 'POST',
             body: {
-                chunkSize: 1024 * 1024 * 5,
                 fileSize: file.size,
                 filename: file.name
             }
@@ -159,14 +157,13 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
 
         await uploader.start()
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, 'test.jpg'))).arrayBuffer())))
+        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('offline', async () => {
         const { id } = await ofetch(getURL('/chunked-upload'), {
             method: 'POST',
             body: {
-                chunkSize: 1024 * 1024 * 5,
                 fileSize: file.size,
                 filename: file.name
             }
@@ -183,7 +180,6 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         const { id } = await ofetch(getURL('chunked-upload'), {
             method: 'POST',
             body: {
-                chunkSize: 1024 * 1024 * 5,
                 fileSize: file.size,
                 filename: file.name
             }
@@ -202,13 +198,34 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
             await new Promise((resolve) => uploader.addEventListener('success', resolve))
 
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, 'test.jpg'))).arrayBuffer())))
+        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('timeout', async () => {
         const uploader = new ChunkedUploader(file, getURL('timeout'))
         const response = await uploader.start()
         expect(response).toBeFalsy()
+    })
+
+    it('manual pause & resume', async () => {
+        const { id } = await ofetch(getURL('chunked-upload'), {
+            method: 'POST',
+            body: {
+                fileSize: file.size,
+                filename: file.name
+            }
+        })
+        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+
+        uploader.start()
+        expect(uploader.status).toBe('pending')
+        uploader.pause()
+        expect(uploader.status).toBe('paused')
+
+        uploader.resume()
+        await new Promise((resolve) => uploader.addEventListener('success', resolve))
+        expect(uploader.status).toBe('success')
+        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })
 
