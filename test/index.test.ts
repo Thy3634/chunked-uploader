@@ -184,18 +184,16 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        // @ts-ignore
-        navigator.onLine = false
         const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
 
-        const response = await uploader.start()
-        expect(response).toBeFalsy()
+        uploader.start()
+        // @ts-ignore
+        navigator.onLine = false
         expect(uploader.status).toBe('paused')
 
         // @ts-ignore
         navigator.onLine = true
-        if (uploader.status === 'pending')
-            await new Promise((resolve) => uploader.addEventListener('success', resolve))
+        await new Promise((resolve) => uploader.addEventListener('success', resolve))
 
         expect(uploader.status).toBe('success')
         expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
@@ -226,6 +224,26 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
         expect(uploader.status).toBe('success')
         expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
+    })
+
+    it('store & restore', async () => {
+        const { id } = await ofetch(getURL('chunked-upload'), {
+            method: 'POST',
+            body: {
+                fileSize: file.size,
+                filename: file.name
+            }
+        })
+        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        uploader.start()
+        uploader.abort()
+
+        const uploader2 = new ChunkedUploader(uploader.store(), ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        uploader2.start()
+        expect(uploader2.status).toBe('pending')
+        await new Promise((resolve) => uploader2.addEventListener('success', resolve))
+        expect(uploader2.status).toBe('success')
+        expect(await uploader2.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })
 
