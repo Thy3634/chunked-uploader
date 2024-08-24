@@ -1,6 +1,6 @@
 {
   "name": "chunked-uploader",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.",
   "sideEffects": false,
   "scripts": {
@@ -9,7 +9,6 @@
     "lint": "eslint .",
     "lint:fix": "automd && eslint . --fix",
     "prepack": "pnpm build",
-    "play": "jiti playground",
     "release": "pnpm test && changelogen --release && npm publish && git push --follow-tags",
     "test": "pnpm lint && pnpm test:types && vitest run --coverage",
     "test:types": "tsc --noEmit --skipLibCheck"
@@ -24,7 +23,7 @@
   "license": "MIT",
   "repository": {
     "type": "github",
-    "url": "https://github.com/Thy3634/chunked-uploader.git"
+    "url": "git+https://github.com/Thy3634/chunked-uploader.git"
   },
   "exports": {
     ".": {
@@ -52,7 +51,6 @@
     "eslint": "^9.8.0",
     "eslint-config-unjs": "^0.3.2",
     "h3": "^1.12.0",
-    "jiti": "^2.0.0-beta.3",
     "listhen": "^1.7.2",
     "prettier": "^3.3.3",
     "typescript": "^5.5.4",

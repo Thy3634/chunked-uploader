@@ -16,7 +16,7 @@ Install package:
 
 Import:
 
-<!-- automd:jsimport cjs cdn src -->
+<!-- automd:jsimport cjs cdn src imports="ChunkedUploader" -->
 
 <!-- /automd -->
 
