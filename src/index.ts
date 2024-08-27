@@ -130,38 +130,42 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
      * - property `status` will be set to 'pending'
      * - event `start` will be dispatched
      * - if `onLine` is false, pause
+     * @param skipIndexes indexes of chunks to skip upload
      */
-    async start() {
+    async start(skipIndexes?: Iterable<number>) {
         if (this.#status !== 'idle') return
-        return await this.uploadChunks()
+        new Set(skipIndexes).forEach(i => this.#chunks[i].status = 'success')
+        return await this.#uploadChunks()
     }
 
-    private async uploadChunks() {
+    async #uploadChunks() {
         if (this.onLine === false) {
             this.#error = new Error('offline')
             this.#error.name = 'OfflineError'
             this.#status = 'paused'
-            this.dispatchEventByType('pause')
+            this.#dispatchEventByType('pause')
             return
         }
         try {
             this.#status = 'pending'
             const response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
             this.#status = 'success'
-            this.dispatchEventByType('success')
+            this.#dispatchEventByType('success')
             return response
         } catch (error_) {
             if (this.#status === 'paused') return
             this.#error = (error_ instanceof Error) ? error_ : new Error('Unknown error', { cause: error_ })
             this.#status = 'error'
-            this.dispatchEventByType('error')
+            this.#dispatchEventByType('error')
         } finally {
             if (this.#status !== 'paused')
-                this.dispatchEventByType('end')
+                this.#dispatchEventByType('end')
         }
     }
 
     async #uploadChunk(chunk: Chunk<T, R>) {
+        if (chunk.status === 'success')
+            this.#loaded++
         if (chunk.status !== 'idle') return
         chunk.status = 'pending'
         try {
@@ -173,7 +177,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             chunk.status = 'success'
             chunk.response = response
             this.#loaded++
-            this.dispatchEventByType('progress')
+            this.#dispatchEventByType('progress')
             return response
         } catch (error) {
             chunk.status = 'idle'
@@ -192,7 +196,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         if (this.#status !== 'pending') return false
         this.#status = 'paused'
         this.abort()
-        this.dispatchEventByType('pause')
+        this.#dispatchEventByType('pause')
         return true
     }
 
@@ -205,8 +209,8 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     async resume() {
         if (this.#status !== 'paused') return false
         this.#error = undefined
-        this.dispatchEventByType('resume')
-        return await this.uploadChunks()
+        this.#dispatchEventByType('resume')
+        return await this.#uploadChunks()
     }
 
     #ononline = (_e: Event) => { this.onLine = true }
@@ -243,7 +247,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         return super.dispatchEvent(event)
     }
 
-    private dispatchEventByType(type: ChunkedUploaderEventType) {
+    #dispatchEventByType(type: ChunkedUploaderEventType) {
         const event = new ChunkedUploaderEvent<T, R>(type, this)
         this.dispatchEvent(event)
     }
