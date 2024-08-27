@@ -37,9 +37,25 @@ bun install @thy3634/chunked-uploader
 
 Import:
 
-<!-- automd:jsimport cjs cdn src imports="ChunkedUploader" -->
+<!-- automd:jsimport cjs cdn imports="ChunkedUploader" -->
 
-<!-- ⚠️  (jsimport) input must be a `string` or `URL` -->
+**ESM** (Node.js, Bun)
+
+```js
+import { ChunkedUploader } from "@thy3634/chunked-uploader";
+```
+
+**CommonJS** (Legacy Node.js)
+
+```js
+const { ChunkedUploader } = require("@thy3634/chunked-uploader");
+```
+
+**CDN** (Deno, Bun and Browsers)
+
+```js
+import { ChunkedUploader } from "https://esm.sh/@thy3634/chunked-uploader";
+```
 
 <!-- /automd -->
 
