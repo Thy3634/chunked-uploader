@@ -3,6 +3,9 @@
 
 <!-- automd:badges color=yellow packagephobia -->
 
+[![npm version](https://img.shields.io/npm/v/@thy3634/chunked-uploader?color=yellow)](https://npmjs.com/package/@thy3634/chunked-uploader)
+[![npm downloads](https://img.shields.io/npm/dm/@thy3634/chunked-uploader?color=yellow)](https://npmjs.com/package/@thy3634/chunked-uploader)
+
 <!-- /automd -->
 
 Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.
@@ -12,11 +15,31 @@ Split file into chunks and upload. resumable, retriable, offline aware. Works on
 Install package:
 
 <!-- automd:pm-install -->
+
+```sh
+# ✨ Auto-detect
+npx nypm install @thy3634/chunked-uploader
+
+# npm
+npm install @thy3634/chunked-uploader
+
+# yarn
+yarn add @thy3634/chunked-uploader
+
+# pnpm
+pnpm install @thy3634/chunked-uploader
+
+# bun
+bun install @thy3634/chunked-uploader
+```
+
 <!-- /automd -->
 
 Import:
 
 <!-- automd:jsimport cjs cdn src imports="ChunkedUploader" -->
+
+<!-- ⚠️  (jsimport) input must be a `string` or `URL` -->
 
 <!-- /automd -->
 
@@ -198,6 +221,13 @@ uploader.addEventListener('success', (event) => {
 ## License
 
 <!-- automd:contributors license=MIT -->
+
+Published under the [MIT](https://github.com/Thy3634/chunked-uploader/blob/main/LICENSE) license.
+Made by [community](https://github.com/Thy3634/chunked-uploader/graphs/contributors) 💛
+<br><br>
+<a href="https://github.com/Thy3634/chunked-uploader/graphs/contributors">
+<img src="https://contrib.rocks/image?repo=Thy3634/chunked-uploader" />
+</a>
 
 <!-- /automd -->
 
