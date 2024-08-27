@@ -1,5 +1,5 @@
 {
-  "name": "chunked-uploader",
+  "name": "@thy3634/chunked-uploader",
   "version": "0.0.0",
   "description": "Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.",
   "sideEffects": false,
@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "lint:fix": "automd && eslint . --fix",
     "prepack": "pnpm build",
-    "release": "pnpm test && changelogen --release && npm publish && git push --follow-tags",
+    "release": "pnpm test && changelogen --release && npm publish  --access public && git push --follow-tags",
     "test": "pnpm lint && pnpm test:types && vitest run --coverage",
     "test:types": "tsc --noEmit --skipLibCheck"
   },
