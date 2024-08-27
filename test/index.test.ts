@@ -26,25 +26,7 @@ import { md5 } from "hash-wasm"
 
 const listeners = new Map<string, Set<EventListener>>()
 
-vi.stubGlobal('navigator', new Proxy({
-    onLine: true
-}, {
-    set(target, p, v) {
-        switch (p) {
-            case 'onLine':
-                {
-                    const type = v ? 'online' : 'offline'
-                    if (listeners.has(type))
-                        for (const listener of listeners.get(type)!) {
-                            listener.call(target, new Event(type))
-                        }
-                    break
-                }
-        }
-        target[p] = v
-        return true
-    }
-}))
+vi.stubGlobal('navigator', { onLine: true })
 
 vi.stubGlobal('window', {
     addEventListener(type: string, listener: EventListener) {
@@ -84,7 +66,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
             ).post(
                 "/chunked-upload/:id/:i",
                 eventHandler(async (event) => {
-                    const { id } = getRouterParams(event)
+                    const { id, i } = getRouterParams(event)
                     const confPath = resolve(location, '.temp', `${id}.json`)
                     if (!existsSync(confPath))
                         throw createError({ status: 400 })
@@ -124,9 +106,10 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                             else resolve()
                         })
                     })
-                    return ''
+                    return i
                 })
-            ).post('/timeout',
+            )
+            .post('/timeout',
                 eventHandler(() => {
                     throw createError({ status: 408 })
                 })
@@ -187,12 +170,16 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
 
         uploader.start()
-        // @ts-ignore
-        navigator.onLine = false
+        if (listeners.has('offline'))
+            for (const listener of listeners.get('offline')!) {
+                listener.call(navigator, new Event('offline'))
+            }
         expect(uploader.status).toBe('paused')
 
-        // @ts-ignore
-        navigator.onLine = true
+        if (listeners.has('online'))
+            for (const listener of listeners.get('online')!) {
+                listener.call(navigator, new Event('online'))
+            }
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
 
         expect(uploader.status).toBe('success')
@@ -235,14 +222,20 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
             }
         })
         const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
-        uploader.start()
-        uploader.abort()
-
+        await ofetch(getURL(joinURL('chunked-upload', id, '0')), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'Range': `bytes=${uploader.chunks[0].start}-${uploader.chunks[0].end - 1}`,
+                'Content-Digest': `md5=:${hexStringToBase64(await uploader.chunks[0].blob.arrayBuffer().then(buffer => md5(new Uint8Array(buffer))))}:`
+            },
+            body: uploader.chunks[0].blob,
+            retry: 3
+        })
         const uploader2 = new ChunkedUploader(uploader.store(), ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
-        uploader2.start()
-        expect(uploader2.status).toBe('pending')
-        await new Promise((resolve) => uploader2.addEventListener('success', resolve))
-        expect(uploader2.status).toBe('success')
+        uploader2.start([0])
+        expect(uploader2.chunks[0].status).toBe('success')
+        await new Promise((resolve) => uploader2.onsuccess = resolve)
         expect(await uploader2.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })

@@ -33,7 +33,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     get hash() { return this.#hash }
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
-    /** The current status of the upload */
+    /** The current status of the upload process. */
     get status() { return this.#status }
     #error?: Error
     /** The error that occurred while uploading */
@@ -56,9 +56,9 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     /**
-     * @param file 
-     * @param requestInfo 
-     * @param options 
+     * @param file The file to upload, or an object containing the file's information and an array of chunks
+     * @param requestInfo Request information, or a function that returns request information based on the chunk and file information
+     * @param options Based on the FetchOptions type from the ofetch library, with some additional properties.
      */
     constructor(file: File | FileInfo & { chunks: Chunk<T, R>[] }, requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<T, R>) {
         super()
@@ -115,26 +115,34 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     /**
-     * abort the upload, if it is not uploading, do nothing
+     * Abort the upload, if it is not uploading, do nothing, otherwise:
      * - property `status` will be set to 'error'
      * - event `abort` will be dispatched
-     * - property `error` will be set to an `Error` named 'AbortError'
+     * - property `error` will be set to an `Error`
+     * @returns if the upload is aborted
      */
     abort() {
-        if (this.#status !== 'pending') return
+        if (this.#status !== 'pending') return false
         this.#abortController.abort()
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('online', this.#ononline)
+            window.removeEventListener('offline', this.#onoffline)
+        }
+        return true
     }
 
     /**
-     * start the upload, if the upload is already started, do nothing
+     * Start the upload, if the upload is already started, do nothing, otherwise:
      * - property `status` will be set to 'pending'
      * - event `start` will be dispatched
      * - if `onLine` is false, pause
-     * @param skipIndexes indexes of chunks to skip upload
+     * @param skipIndexes indexes of chunks to skip
      */
     async start(skipIndexes?: Iterable<number>) {
         if (this.#status !== 'idle') return
-        new Set(skipIndexes).forEach(i => this.#chunks[i].status = 'success')
+        for (const i of new Set(skipIndexes)) {
+            if (this.#chunks[i]) this.#chunks[i].status = 'success'
+        }
         return await this.#uploadChunks()
     }
 
@@ -164,9 +172,11 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     async #uploadChunk(chunk: Chunk<T, R>) {
-        if (chunk.status === 'success')
+        if (chunk.status === 'success') {
             this.#loaded++
-        if (chunk.status !== 'idle') return
+            this.#dispatchEventByType('progress')
+            return chunk.response
+        }
         chunk.status = 'pending'
         try {
             const response = this.#requestOptions.instance<T, R>(this.#requestInfo instanceof Function ? this.#requestInfo(chunk, this.#fileInfo) : this.#requestInfo, {
@@ -186,7 +196,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     /**
-     * pause the upload, if it is not uploading, do nothing, otherwise:
+     * Pause the upload, if it is not uploading, do nothing, otherwise:
      * - property `status` will be set to 'paused'
      * - method `abort` will be called
      * - event `pause` will be dispatched
@@ -201,7 +211,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     /**
-     * resume the upload, if it is not paused, do nothing, otherwise:
+     * Resume the upload, if it is not paused, do nothing, otherwise:
      * - property `status` will be set to 'pending'
      * - event `resume` will be dispatched
      * @returns if the upload is paused, return the response array of chunks upload, otherwise return false
@@ -252,6 +262,9 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         this.dispatchEvent(event)
     }
 
+    /**
+     * Get the file information and chunks so that you can store them and reconstruct the uploader later.
+     */
     store() {
         return {
             ...this.#fileInfo,
@@ -322,7 +335,7 @@ type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<Fetch
     retryDelay?: number
     /**
      * @link [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range) [Content-Digest](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Digest)
-     * @default (chunk) => { 'Content-Type': 'application/octet-stream', 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5ofChunk}:` }
+     * @default (chunk) => { 'Content-Type': 'application/octet-stream', 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5(chunk.blob)}:` }
      */
     headers?: HeadersInit | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => HeadersInit | Promise<HeadersInit>)
 }
