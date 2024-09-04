@@ -1,7 +1,7 @@
 import { ofetch } from 'ofetch'
 import type { FetchOptions, $Fetch, ResponseType, MappedResponseType } from 'ofetch'
 import { defu } from 'defu'
-import { md5, createMD5, sha1, sha256, sha384, sha512, createSHA1, createSHA256, createSHA384, createSHA512 } from 'hash-wasm'
+import { md5, createMD5, sha1, sha256, sha384, sha512, createSHA1, createSHA256, createSHA384, createSHA512, createCRC32, createCRC32C, crc32c, adler32, createAdler32 } from 'hash-wasm'
 
 /**
  * ChunkedUploader is a class that facilitates uploading files in chunks.
@@ -90,9 +90,12 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         const hashs = {
             md5,
             'sha-1': sha1,
+            sha: sha1,
             'sha-256': sha256,
             'sha-384': sha384,
             'sha-512': sha512,
+            crc32c,
+            adler: adler32
         }
         if (file instanceof File) {
             this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
@@ -111,9 +114,12 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         this.#hash = {
             md5: createMD5,
             'sha-1': createSHA1,
+            sha: createSHA1,
             'sha-256': createSHA256,
             'sha-384': createSHA384,
-            'sha-512': createSHA512
+            'sha-512': createSHA512,
+            crc32c: createCRC32C,
+            adler: createAdler32,
         }[this.#requestOptions.hashAlgorithm]().then(async (hasher) => {
             for (const chunk of this.#chunks) {
                 hasher = hasher.update(new Uint8Array(await chunk.blob.arrayBuffer()))
