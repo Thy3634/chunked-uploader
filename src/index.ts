@@ -1,7 +1,8 @@
 import { ofetch } from 'ofetch'
 import type { FetchOptions, $Fetch, ResponseType, MappedResponseType } from 'ofetch'
 import { defu } from 'defu'
-import { md5, createMD5, sha1, sha256, sha384, sha512, createSHA1, createSHA256, createSHA384, createSHA512, createCRC32, createCRC32C, crc32c, adler32, createAdler32 } from 'hash-wasm'
+import { md5, createMD5, sha1, sha256, sha384, sha512, createSHA1, createSHA256, createSHA384, createSHA512 } from 'hash-wasm'
+import pLimit from 'p-limit'
 
 /**
  * ChunkedUploader is a class that facilitates uploading files in chunks.
@@ -27,6 +28,33 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     #chunks: Chunk<T, R>[]
     /** An array of chunks that make up the file */
     get chunks() { return this.#chunks }
+
+    static hasher = {
+        md5: {
+            create: createMD5,
+            hash: md5
+        },
+        'sha-1': {
+            create: createSHA1,
+            hash: sha1
+        },
+        sha: {
+            create: createSHA1,
+            hash: sha1
+        },
+        'sha-256': {
+            create: createSHA256,
+            hash: sha256
+        },
+        'sha-384': {
+            create: createSHA384,
+            hash: sha384
+        },
+        'sha-512': {
+            create: createSHA512,
+            hash: sha512
+        },
+    }
 
     #hash: Promise<string>
     /** A promise that resolves to the hash (hex) of the file's data */
@@ -70,7 +98,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         })
         this.#requestInfo = requestInfo
         this.#requestOptions = defu(requestOptions, {
-            hashAlgorithm: 'md5' as 'md5',
+            hashAlgorithm: 'md5' as const,
             method: 'POST',
             signal: this.#abortController.signal,
             chunkSize: 1024 * 1024 * 5,
@@ -79,31 +107,23 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             retryDelay: 3000,
             body: (chunk: Chunk<T, R>) => chunk.blob,
             headers: async (chunk: Chunk<T, R>) => {
-                return {
-                    'Content-Type': 'application/octet-stream',
-                    'Range': `bytes=${chunk.start}-${chunk.end - 1}`,
-                    'Content-Digest': `${requestOptions?.hashAlgorithm ?? 'md5'}=:${hexStringToBase64(await chunk.hash)}:`
-                } as HeadersInit
-            }
+                const headers = new Headers()
+                headers.set('Content-Type', 'application/octet-stream')
+                headers.set('Range', `bytes=${chunk.start}-${chunk.end - 1}`)
+                if (requestOptions?.hashAlgorithm)
+                    headers.set('Content-Digest', `${requestOptions.hashAlgorithm}=:${await chunk.hash}:`)
+                return headers
+            },
+            limit: Infinity
         })
 
-        const hashs = {
-            md5,
-            'sha-1': sha1,
-            sha: sha1,
-            'sha-256': sha256,
-            'sha-384': sha384,
-            'sha-512': sha512,
-            crc32c,
-            adler: adler32
-        }
         if (file instanceof File) {
             this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
                 const start = index * this.#requestOptions.chunkSize
                 const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
                 const blob = file.slice(start, end)
-                return { index, blob, start, end, status: 'idle', response: undefined, hash: blob.arrayBuffer().then(buffer => hashs[this.#requestOptions.hashAlgorithm](new Uint8Array(buffer))) }
+                return { index, blob, start, end, status: 'idle', response: undefined, hash: this.#requestOptions.hashAlgorithm ? blob.arrayBuffer().then(buffer => ChunkedUploader.hasher[this.#requestOptions.hashAlgorithm].hash(new Uint8Array(buffer))) : undefined }
             })
         } else {
             this.#chunks = file.chunks
@@ -111,21 +131,12 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
 
-        this.#hash = {
-            md5: createMD5,
-            'sha-1': createSHA1,
-            sha: createSHA1,
-            'sha-256': createSHA256,
-            'sha-384': createSHA384,
-            'sha-512': createSHA512,
-            crc32c: createCRC32C,
-            adler: createAdler32,
-        }[this.#requestOptions.hashAlgorithm]().then(async (hasher) => {
+        this.#hash = this.#requestOptions.hashAlgorithm ? ChunkedUploader.hasher[this.#requestOptions.hashAlgorithm].create().then(async (hasher) => {
             for (const chunk of this.#chunks) {
                 hasher = hasher.update(new Uint8Array(await chunk.blob.arrayBuffer()))
             }
             return hasher.digest()
-        })
+        }) : undefined as never
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
 
@@ -177,7 +188,12 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         }
         try {
             this.#status = 'pending'
-            const response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
+            let response
+            if (Number.isFinite(this.#requestOptions.limit)) {
+                const limit = pLimit(this.#requestOptions.limit)
+                response = await Promise.all(this.#chunks.map(chunk => limit(() => this.#uploadChunk(chunk))))
+            }
+            response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
             this.#status = 'success'
             this.#dispatchEventByType('success')
             return response
@@ -360,7 +376,11 @@ type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<Fetch
      */
     headers?: HeadersInit | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => HeadersInit | Promise<HeadersInit>)
     /** @default 'md5' */
-    hashAlgorithm?: 'md5' | 'sha-1' | 'sha-256' | 'sha-384' | 'sha-512'
+    hashAlgorithm?: 'md5' | 'sha-1' | 'sha-256' | 'sha-384' | 'sha-512' | null
+    /** The number of request concurrency limit. Minimum: `1`.
+     * @default Infinity
+     */
+    limit?: number
 }
 
 /**
@@ -383,11 +403,7 @@ interface Chunk<T = any, R extends ResponseType = 'json'> {
     /** Response of chunk upload */
     response?: Promise<MappedResponseType<R, T>>
     /** hash as a hexadecimal string */
-    hash: Promise<string>
+    hash?: Promise<string>
 }
 
 type FileInfo = Pick<File, 'name' | 'size' | 'lastModified'>
-
-function hexStringToBase64(hexString: string) {
-    return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
-}
