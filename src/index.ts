@@ -32,7 +32,6 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     #hash: Promise<string>
     /** A promise that resolves to the hash (hex) of the file's data */
     get hash() { return this.#hash }
-    #hashLimit
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
     /** The current status of the upload process. */
@@ -62,7 +61,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
      * @param requestInfo Request information, or a function that returns request information based on the chunk and file information
      * @param options Based on the FetchOptions type from the ofetch library, with some additional properties.
      */
-    constructor(file: File | FileInfo & { chunks: Chunk<T, R>[] } | FileInfo & { arrayBuffer: ArrayBuffer | SharedArrayBuffer }, requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<T, R>) {
+    constructor(file: File | FileInfo & { chunks: Array<Chunk<T, R>> } | FileInfo & { arrayBuffer: ArrayBuffer | SharedArrayBuffer }, requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<T, R>) {
         super()
         this.#fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified, type: file.type }
         Object.defineProperties(this.#fileInfo, {
@@ -91,9 +90,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
                 return headers
             },
             limit: Infinity,
-            hashConcurrency: typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency
         })
-        this.#hashLimit = pLimit(this.#requestOptions.hashConcurrency)
 
         this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
         if (file instanceof File) {
@@ -102,19 +99,13 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
                 const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
                 const blob = file.slice(start, end)
                 return {
-                    index, blob, start, end, status: 'idle', response: undefined, hash: this.#requestOptions.hashCreater ? this.#hashLimit(async () => {
-                        const buffer = await blob.arrayBuffer()
-                        let hasher: Hasher
-                        try {
-                            hasher = await this.#requestOptions.hashCreater!()
-                        } catch (error) {
-                            console.warn(error)
-                            hasher = await createMD5()
-                        }
-                        await hasher.init?.()
-                        await hasher.update(new Uint8Array(buffer))
-                        return await hasher.digest()
-                    }) : undefined
+                    index, blob, start, end, status: 'idle', response: undefined,
+                    hash: Promise.resolve(this.#requestOptions.hashCreater())
+                        .then(async hasher => {
+                            await hasher.init?.()
+                            await hasher.update(new Uint8Array(await blob.arrayBuffer()))
+                            return await hasher.digest()
+                        })
                 }
             })
         } else if ('arrayBuffer' in file) {
@@ -123,23 +114,14 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
                 const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
                 const buffer = file.arrayBuffer.slice(start, end)
                 const blob = new Blob([buffer], { type: file.type })
-                let hash: Promise<string> | undefined
-                if (this.#requestOptions.hashCreater) {
-                    hash = this.#hashLimit(async () => {
-                        let hasher: Hasher
-                        try {
-                            hasher = await this.#requestOptions.hashCreater!()
-                        } catch (error) {
-                            console.warn(error)
-                            hasher = await createMD5()
-                        }
-                        await hasher.init?.()
-                        await hasher.update(new Uint8Array(buffer))
-                        return await hasher.digest()
-                    })
-                }
                 return {
-                    index, blob, start, end, status: 'idle', response: undefined, hash
+                    index, blob, start, end, status: 'idle', response: undefined,
+                    hash: Promise.resolve(this.#requestOptions.hashCreater())
+                        .then(async (hasher) => {
+                            await hasher.init?.()
+                            await hasher.update(new Uint8Array(buffer))
+                            return await hasher.digest()
+                        })
                 }
             })
         } else {
@@ -148,18 +130,16 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
 
-        this.#hash = this.#requestOptions.hashCreater ? this.#hashLimit(async () => {
-            const hasher = await this.#requestOptions.hashCreater()
+        this.#hash = Promise.resolve(this.#requestOptions.hashCreater()).then(async hasher => {
             if (hasher.init) {
                 await hasher.init()
                 hasher.init = undefined
             }
-            // @ts-ignore
             for (const chunk of this.#chunks) {
                 await hasher.update(new Uint8Array(await chunk.blob.arrayBuffer()))
             }
             return await hasher.digest()
-        }) : undefined as never
+        })
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
 

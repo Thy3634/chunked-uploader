@@ -19,7 +19,10 @@ import { router } from "../app"
 
 const listeners = new Map<string, Set<EventListener>>()
 
-vi.stubGlobal('navigator', { onLine: true })
+vi.stubGlobal('navigator', {
+    onLine: true,
+    hardwareConcurrency: 4,
+})
 
 vi.stubGlobal('window', {
     addEventListener(type: string, listener: EventListener) {
