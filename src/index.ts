@@ -1,7 +1,7 @@
 import { ofetch } from 'ofetch'
 import type { FetchOptions, $Fetch, ResponseType, MappedResponseType } from 'ofetch'
 import { defu } from 'defu'
-import { md5, createMD5, sha1, sha256, sha384, sha512, createSHA1, createSHA256, createSHA384, createSHA512 } from 'hash-wasm'
+import { createMD5 } from 'hash-wasm'
 import pLimit from 'p-limit'
 
 /**
@@ -29,36 +29,10 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     /** An array of chunks that make up the file */
     get chunks() { return this.#chunks }
 
-    static hasher = {
-        md5: {
-            create: createMD5,
-            hash: md5
-        },
-        'sha-1': {
-            create: createSHA1,
-            hash: sha1
-        },
-        sha: {
-            create: createSHA1,
-            hash: sha1
-        },
-        'sha-256': {
-            create: createSHA256,
-            hash: sha256
-        },
-        'sha-384': {
-            create: createSHA384,
-            hash: sha384
-        },
-        'sha-512': {
-            create: createSHA512,
-            hash: sha512
-        },
-    }
-
     #hash: Promise<string>
     /** A promise that resolves to the hash (hex) of the file's data */
     get hash() { return this.#hash }
+    #hashLimit
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
     /** The current status of the upload process. */
@@ -88,9 +62,9 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
      * @param requestInfo Request information, or a function that returns request information based on the chunk and file information
      * @param options Based on the FetchOptions type from the ofetch library, with some additional properties.
      */
-    constructor(file: File | FileInfo & { chunks: Chunk<T, R>[] }, requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<T, R>) {
+    constructor(file: File | FileInfo & { chunks: Chunk<T, R>[] } | FileInfo & { arrayBuffer: ArrayBuffer | SharedArrayBuffer }, requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<T, R>) {
         super()
-        this.#fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified }
+        this.#fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified, type: file.type }
         Object.defineProperties(this.#fileInfo, {
             name: { writable: false, enumerable: true },
             size: { writable: false, enumerable: true },
@@ -98,32 +72,63 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         })
         this.#requestInfo = requestInfo
         this.#requestOptions = defu(requestOptions, {
-            hashAlgorithm: 'md5' as const,
             method: 'POST',
             signal: this.#abortController.signal,
             chunkSize: 1024 * 1024 * 5,
             instance: ofetch,
             retry: 3,
             retryDelay: 3000,
+            hashCreater: function md5() { return createMD5() },
             body: (chunk: Chunk<T, R>) => chunk.blob,
             headers: async (chunk: Chunk<T, R>) => {
                 const headers = new Headers()
-                headers.set('Content-Type', 'application/octet-stream')
+                if (!requestOptions?.body)
+                    headers.set('Content-Type', 'application/octet-stream')
                 headers.set('Range', `bytes=${chunk.start}-${chunk.end - 1}`)
-                if (requestOptions?.hashAlgorithm)
-                    headers.set('Content-Digest', `${requestOptions.hashAlgorithm}=:${await chunk.hash}:`)
+                if (this.#requestOptions.hashCreater?.name && await chunk.hash) {
+                    headers.set('Content-Digest', `${this.#requestOptions.hashCreater.name}=:${hexStringToBase64(await chunk.hash!)}:`)
+                }
                 return headers
             },
-            limit: Infinity
+            limit: Infinity,
+            hashConcurrency: typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency
         })
+        this.#hashLimit = pLimit(this.#requestOptions.hashConcurrency)
 
+        this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
         if (file instanceof File) {
-            this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
                 const start = index * this.#requestOptions.chunkSize
                 const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
                 const blob = file.slice(start, end)
-                return { index, blob, start, end, status: 'idle', response: undefined, hash: this.#requestOptions.hashAlgorithm ? blob.arrayBuffer().then(buffer => ChunkedUploader.hasher[this.#requestOptions.hashAlgorithm].hash(new Uint8Array(buffer))) : undefined }
+                return {
+                    index, blob, start, end, status: 'idle', response: undefined, hash: this.#requestOptions.hashCreater ? this.#hashLimit(async () => {
+                        const buffer = await blob.arrayBuffer()
+                        const hasher = await this.#requestOptions.hashCreater!()
+                        await hasher.init?.()
+                        await hasher.update(new Uint8Array(buffer))
+                        return await hasher.digest()
+                    }) : undefined
+                }
+            })
+        } else if ('arrayBuffer' in file) {
+            this.#chunks = Array.from({ length: this.#total }, (_, index) => {
+                const start = index * this.#requestOptions.chunkSize
+                const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
+                const buffer = file.arrayBuffer.slice(start, end)
+                const blob = new Blob([buffer], { type: file.type })
+                let hash: Promise<string> | undefined
+                if (this.#requestOptions.hashCreater) {
+                    hash = this.#hashLimit(async () => {
+                        const hasher = await this.#requestOptions.hashCreater()
+                        await hasher.init?.()
+                        await hasher.update(new Uint8Array(buffer))
+                        return await hasher.digest()
+                    })
+                }
+                return {
+                    index, blob, start, end, status: 'idle', response: undefined, hash
+                }
             })
         } else {
             this.#chunks = file.chunks
@@ -131,11 +136,17 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
 
-        this.#hash = this.#requestOptions.hashAlgorithm ? ChunkedUploader.hasher[this.#requestOptions.hashAlgorithm].create().then(async (hasher) => {
-            for (const chunk of this.#chunks) {
-                hasher = hasher.update(new Uint8Array(await chunk.blob.arrayBuffer()))
+        this.#hash = this.#requestOptions.hashCreater ? this.#hashLimit(async () => {
+            const hasher = await this.#requestOptions.hashCreater()
+            if (hasher.init) {
+                await hasher.init()
+                hasher.init = undefined
             }
-            return hasher.digest()
+            // @ts-ignore
+            for (const chunk of this.#chunks) {
+                await hasher.update(new Uint8Array(await chunk.blob.arrayBuffer()))
+            }
+            return await hasher.digest()
         }) : undefined as never
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -375,12 +386,20 @@ type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<Fetch
      * @default (chunk) => { 'Content-Type': 'application/octet-stream', 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5(chunk.blob)}:` }
      */
     headers?: HeadersInit | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => HeadersInit | Promise<HeadersInit>)
-    /** @default 'md5' */
-    hashAlgorithm?: 'md5' | 'sha-1' | 'sha-256' | 'sha-384' | 'sha-512' | null
-    /** The number of request concurrency limit. Minimum: `1`.
-     * @default Infinity
+    /** 
+     * The hasher to use for calculating the hash of the file's data.
+     * @link [hash-wasm](https://github.com/Daninet/hash-wasm)
+     * @default `createMD5`
      */
+    hashCreater?: HasherCreater | null
+    /** The number of request concurrency limit. */
     limit?: number
+    /**
+     * @experimental
+     * The number of concurrency limit for hash calculation.
+     * @default typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency
+     */
+    hashConcurrency?: number
 }
 
 /**
@@ -406,4 +425,19 @@ interface Chunk<T = any, R extends ResponseType = 'json'> {
     hash?: Promise<string>
 }
 
-type FileInfo = Pick<File, 'name' | 'size' | 'lastModified'>
+type FileInfo = Pick<File, 'name' | 'size' | 'lastModified' | 'type'>
+
+interface Hasher {
+    init?: () => void | Promise<void>
+    update: (data: Uint8Array | Uint16Array | Uint32Array | string) => void | Promise<void>
+    digest: (outputType?: any) => string | Promise<string>
+}
+
+interface HasherCreater {
+    name?: string
+    (): Promise<Hasher> | Hasher
+}
+
+function hexStringToBase64(hexString: string) {
+    return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
+}
