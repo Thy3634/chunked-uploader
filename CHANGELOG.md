@@ -1,6 +1,40 @@
 # Changelog
 
 
+## v0.0.2
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.1...v0.0.2)
+
+### 🚀 Enhancements
+
+- Could set hash algorithm ([7e7bd95](https://github.com/Thy3634/chunked-uploader/commit/7e7bd95))
+- Add hash slgorithm ([17dbf92](https://github.com/Thy3634/chunked-uploader/commit/17dbf92))
+- Add options.hashCreater for hasher ([b4aa77d](https://github.com/Thy3634/chunked-uploader/commit/b4aa77d))
+- An example of using ChunkedUploader to upload a file, using multiple web workers to calc chunk's md5 in parallel. ([cc54106](https://github.com/Thy3634/chunked-uploader/commit/cc54106))
+- Remove hashLimit ([a9fb526](https://github.com/Thy3634/chunked-uploader/commit/a9fb526))
+
+### 🩹 Fixes
+
+- Progress ([9716894](https://github.com/Thy3634/chunked-uploader/commit/9716894))
+
+### 📖 Documentation
+
+- README automd ([c253414](https://github.com/Thy3634/chunked-uploader/commit/c253414))
+- Update import statement ([54a7b6b](https://github.com/Thy3634/chunked-uploader/commit/54a7b6b))
+
+### 🏡 Chore
+
+- **release:** V0.0.1 ([10e73f4](https://github.com/Thy3634/chunked-uploader/commit/10e73f4))
+
+### ✅ Tests
+
+- Remove timeout case, add coverage exclude ([e8045aa](https://github.com/Thy3634/chunked-uploader/commit/e8045aa))
+
+### ❤️ Contributors
+
+- Thy <thy3634@qq.com>
+- Thy3634 <thy3634@qq.com>
+
 ## v0.0.1
 
 
