@@ -104,7 +104,13 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
                 return {
                     index, blob, start, end, status: 'idle', response: undefined, hash: this.#requestOptions.hashCreater ? this.#hashLimit(async () => {
                         const buffer = await blob.arrayBuffer()
-                        const hasher = await this.#requestOptions.hashCreater!()
+                        let hasher: Hasher
+                        try {
+                            hasher = await this.#requestOptions.hashCreater!()
+                        } catch (error) {
+                            console.warn(error)
+                            hasher = await createMD5()
+                        }
                         await hasher.init?.()
                         await hasher.update(new Uint8Array(buffer))
                         return await hasher.digest()
@@ -120,7 +126,13 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
                 let hash: Promise<string> | undefined
                 if (this.#requestOptions.hashCreater) {
                     hash = this.#hashLimit(async () => {
-                        const hasher = await this.#requestOptions.hashCreater()
+                        let hasher: Hasher
+                        try {
+                            hasher = await this.#requestOptions.hashCreater!()
+                        } catch (error) {
+                            console.warn(error)
+                            hasher = await createMD5()
+                        }
                         await hasher.init?.()
                         await hasher.update(new Uint8Array(buffer))
                         return await hasher.digest()
@@ -234,8 +246,10 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             })
             chunk.status = 'success'
             chunk.response = response
-            this.#loaded++
-            this.#dispatchEventByType('progress')
+            response.then(() => {
+                this.#loaded++
+                this.#dispatchEventByType('progress')
+            })
             return response
         } catch (error) {
             chunk.status = 'idle'
@@ -428,8 +442,8 @@ interface Chunk<T = any, R extends ResponseType = 'json'> {
 type FileInfo = Pick<File, 'name' | 'size' | 'lastModified' | 'type'>
 
 interface Hasher {
-    init?: () => void | Promise<void>
-    update: (data: Uint8Array | Uint16Array | Uint32Array | string) => void | Promise<void>
+    init?: () => any
+    update: (data: Uint8Array | Uint16Array | Uint32Array | string) => any
     digest: (outputType?: any) => string | Promise<string>
 }
 

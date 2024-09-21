@@ -23,15 +23,16 @@
 <body>
     <article>
         <form id="form">
-            <input type="file" id="file-input" />
-
-            <label>Chunk size(in bytes)
-                <input id="chunk-size-input" type="number" step="1" value="5242880"
-                    placeholder="default: 5*1024*1024" />
+            <label>Chunk size (MB):
+                <input id="chunk-size-input" type="number" step="1" value="5" />
             </label>
 
-            <button id="upload-button" disabled>Upload</button>
+            <input type="file" id="file-input" />
+
+            <button id="upload-button" disabled type="submit">Upload</button>
             <progress id="progress" max=100 value=0></progress>
+
+            <button id="reset-button" type="reset">Reset</button>
         </form>
 
     </article>

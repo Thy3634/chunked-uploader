@@ -4,6 +4,7 @@
 import { ofetch } from "ofetch"
 import { ChunkedUploader } from "."
 
+const form = document.querySelector('#form') as HTMLFormElement
 const fileInput = document.querySelector('#file-input') as HTMLInputElement
 const progress = document.querySelector('#progress') as HTMLProgressElement
 const chunkSizeInput = document.querySelector('#chunk-size-input') as HTMLInputElement
@@ -19,29 +20,11 @@ function md5() {
     worker.addEventListener('messageerror', console.error)
 
     return {
-        async init() {
+        init() {
             worker.postMessage({ type: 'init' })
-            return new Promise<void>((resolve) => {
-                function onMessage(e: MessageEvent) {
-                    if (e.data.type === 'init') {
-                        worker.removeEventListener('message', onMessage)
-                        resolve()
-                    }
-                }
-                worker.addEventListener('message', onMessage)
-            })
         },
-        async update(data: Uint8Array | Uint16Array | Uint32Array | string) {
+        update(data: Uint8Array | Uint16Array | Uint32Array | string) {
             worker.postMessage({ type: 'update', data })
-            return new Promise<void>((resolve) => {
-                function onMessage(e: MessageEvent) {
-                    if (e.data.type === 'update') {
-                        worker.removeEventListener('message', onMessage)
-                        resolve()
-                    }
-                }
-                worker.addEventListener('message', onMessage)
-            })
         },
         async digest() {
             return new Promise<string>((resolve) => {
@@ -62,7 +45,8 @@ function md5() {
 fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0]
     if (file) {
-        chunkSizeInput.disabled = false
+        chunkSizeInput.disabled = true
+        uploadButton.disabled = false
         const { id } = await ofetch<{ id: string }>('/chunked-upload', {
             method: 'POST',
             body: {
@@ -77,18 +61,19 @@ fileInput.addEventListener('change', async () => {
                 formData.append('file', chunk.blob)
                 return formData
             },
-            // hashCreater: md5,
-            chunkSize: Number.parseInt(chunkSizeInput.value),
+            hashCreater: md5,
+            chunkSize: Number.parseInt(chunkSizeInput.value) * 1024 * 1024,
             // Set `options.limit` to limit the number of upload requests. 
             // limit: navigator.hardwareConcurrency, // The number of CPU cores.
         })
 
         requestIdleCallback(() => uploadButton.disabled = false)
 
-        uploadButton.addEventListener('click', () => {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault()
             uploader.start()
             uploadButton.disabled = true
-            chunkSizeInput.disabled = true
+            chunkSizeInput.disabled = false
         })
         uploader.addEventListener('progress', () => {
             progress.value = uploader.loaded / uploader.total * 100
@@ -101,4 +86,10 @@ fileInput.addEventListener('change', async () => {
             alert('Upload failed')
         })
     }
+})
+
+form.addEventListener('reset', () => {
+    progress.value = 0
+    uploadButton.disabled = true
+    chunkSizeInput.disabled = false
 })
