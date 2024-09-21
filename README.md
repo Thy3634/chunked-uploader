@@ -10,6 +10,12 @@
 
 Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.
 
+## Demo
+
+[![StackBlitz](https://img.shields.io/badge/StackBlitz-Open%20Demo-blue?logo=stackblitz)](https://stackblitz.com/~/github.com/Thy3634/chunked-uploader)
+
+Or git clone this repository and run `pnpm dev` to see the demo.
+
 ## Usage
 
 Install package:
@@ -198,6 +204,7 @@ uploader.addEventListener('success', (event) => {
 | instance | [`$Fetch`](https://github.com/unjs/ofetch?tab=readme-ov-file#%EF%B8%8F-create-fetch-with-default-options) | The ofetch instance to use for making requests. | [`ofetch`](https://github.com/unjs/ofetch?tab=readme-ov-file#-quick-start) |
 | retry | `number` | The number of times to retry a request if it fails. | 3 |
 | retryDelay | `number` | The delay in milliseconds between retries. | 3000 |
+| limit | `number` | The maximum number of concurrent requests. | Infinity |
 
 > Http Header in default headers:
 > - [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range)

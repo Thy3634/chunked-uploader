@@ -12,10 +12,13 @@
             display: flex;
             flex-direction: column;
             justify-content: center;
+            margin: auto;
+            width: 36rem;
+            gap: 1rem;
         }
 
-        button {
-            width: 8rem;
+        article {
+            margin: 8rem;
         }
     </style>
 </head>
@@ -28,11 +31,25 @@
             </label>
 
             <input type="file" id="file-input" />
+            <p>
+                The file will be split into chunks, and each chunk will be calculated its md5.
+            </p>
 
-            <button id="upload-button" disabled type="submit">Upload</button>
-            <progress id="progress" max=100 value=0></progress>
+            <label>progress:<progress id="progress" max=100 value=0></progress></label>
 
-            <button id="reset-button" type="reset">Reset</button>
+            <section>
+                <button id="upload-button" disabled type="submit">Submit</button>
+                <button id="reset-button" type="reset">Reset</button>
+            </section>
+
+            <p>
+                Open the devtools Network tab to see the requests.
+                Open the .temp folder to see the result.
+            </p>
+
+            <p>In this demo, you may see error "WebAssembly.instantiate(): Out of memory: Cannot sllocate Wasm memory
+                for new instance", see <a href="https://issues.chromium.org/issues/351165328">chromium issues</a>. You
+                can set the chunk size to a bigger value to avoid this error. Or use Firefox.</p>
         </form>
 
     </article>
