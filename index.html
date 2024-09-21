@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chunked Uploader</title>
+    <meta name="description"
+        content="An example of using ChunkedUploader to upload a file, using multiple web workers to use wasm to calucate chunk's md5 in parallel." />
+    <style>
+        form {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        button {
+            width: 8rem;
+        }
+    </style>
+</head>
+
+<body>
+    <article>
+        <form id="form">
+            <input type="file" id="file-input" />
+
+            <label>Chunk size(in bytes)
+                <input id="chunk-size-input" type="number" step="1" value="5242880"
+                    placeholder="default: 5*1024*1024" />
+            </label>
+
+            <button id="upload-button" disabled>Upload</button>
+            <progress id="progress" max=100 value=0></progress>
+        </form>
+
+    </article>
+    <script src="./src/main.ts" type="module"></script>
+</body>
+
+</html>

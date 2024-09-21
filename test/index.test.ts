@@ -2,27 +2,20 @@ import { describe, beforeAll, afterAll, it, expect, vi } from "vitest"
 import { listen, Listener } from "listhen"
 import { joinURL } from "ufo"
 import {
-    assertMethod,
     createApp,
     createError,
     eventHandler,
-    getHeader,
-    getRouterParams,
-    readBody,
-    readRawBody,
-    setHeader,
     toNodeListener,
-    createRouter,
 } from "h3"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { fileURLToPath } from 'node:url'
-import { resolve, dirname, extname } from "node:path"
-import { randomUUID } from "node:crypto"
-import { existsSync, openAsBlob, createWriteStream } from "node:fs"
+import { resolve, dirname } from "node:path"
 
 import { ofetch } from "ofetch"
 import { ChunkedUploader } from '../src'
 import { md5 } from "hash-wasm"
+import { openAsBlob } from "node:fs"
+import { router } from "../app"
 
 const listeners = new Map<string, Set<EventListener>>()
 
@@ -42,82 +35,20 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
     let listener: Listener;
     const getURL = (url: string) => joinURL(listener.url, url);
 
-    const location = dirname(fileURLToPath(import.meta.url))
-    let failed = 0
+    const location = dirname(resolve(fileURLToPath(import.meta.url), '../'))
     let file: File
 
     beforeAll(async () => {
         const app = createApp()
-        const router = createRouter()
-            .post(
-                "/chunked-upload",
-                eventHandler(async (event) => {
-                    assertMethod(event, 'POST')
-                    const body = await readBody(event)
-                    console.assert(typeof body?.fileSize === 'number', 'fileSize')
-                    console.assert(typeof body?.filename === 'string', 'filename')
-                    const id = randomUUID()
-                    setHeader(event, 'ETag', id)
-                    if (!existsSync(resolve(location, '.temp')))
-                        await mkdir(resolve(location, '.temp'))
-                    await writeFile(resolve(location, '.temp', `${id}.json`), JSON.stringify(body), { encoding: 'utf8', flag: 'w' })
-                    return { id }
-                })
-            ).post(
-                "/chunked-upload/:id/:i",
-                eventHandler(async (event) => {
-                    const { id, i } = getRouterParams(event)
-                    const confPath = resolve(location, '.temp', `${id}.json`)
-                    if (!existsSync(confPath))
-                        throw createError({ status: 400 })
-
-                    const { filename } = JSON.parse(await readFile(confPath, 'utf8'))
-                    const range = getHeader(event, 'Range')
-                    const contentDigest = getHeader(event, 'Content-Digest')
-                    const rangeExp = /^bytes=(\d+)-(\d+)$/
-                    const contentDigestExp = /^md5=:(.+):$/
-                    const [_, start] = rangeExp.exec(range!)!.map((it) => Number.parseInt(it))
-                    const chunk = (await readRawBody(event, false))!
-                    console.assert(hexStringToBase64(await md5(chunk)) === contentDigestExp.exec(contentDigest!)![1], 'hash mismatch')
-
-                    // make a chunk upload failed
-                    if (failed < 1) {
-                        failed++
-                        throw createError({ status: 408 })
-                    }
-
-                    const path = resolve(location, '.temp', `${id}${extname(filename)}`)
-                    if (!existsSync(path))
-                        await writeFile(path, [])
-                    const ws = createWriteStream(path, {
-                        start,
-                        flags: 'r+',
-                        encoding: 'binary'
-                    })
-                    await new Promise<void>((resolve, reject) => {
-                        ws.write(chunk, (error) => {
-                            if (error) reject(error)
-                            else resolve()
-                        })
-                    })
-                    await new Promise<void>((resolve, reject) => {
-                        ws.close((err) => {
-                            if (err) reject(err)
-                            else resolve()
-                        })
-                    })
-                    return i
-                })
-            )
-            .post('/timeout',
-                eventHandler(() => {
-                    throw createError({ status: 408 })
-                })
-            )
+        router.post('/timeout',
+            eventHandler(() => {
+                throw createError({ status: 408 })
+            })
+        )
         app.use(router)
         listener = await listen(toNodeListener(app))
 
-        file = new File([await openAsBlob(resolve(location, 'test.jpg'))], 'test.jpg')
+        file = new File([await openAsBlob(resolve(location, './test/test.jpg'))], 'test.jpg')
     })
 
     afterAll(async () => {
