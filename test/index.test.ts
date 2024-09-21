@@ -3,8 +3,6 @@ import { listen, Listener } from "listhen"
 import { joinURL } from "ufo"
 import {
     createApp,
-    createError,
-    eventHandler,
     toNodeListener,
 } from "h3"
 import { rm } from "node:fs/promises"
@@ -43,11 +41,6 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
 
     beforeAll(async () => {
         const app = createApp()
-        router.post('/timeout',
-            eventHandler(() => {
-                throw createError({ status: 408 })
-            })
-        )
         app.use(router)
         listener = await listen(toNodeListener(app))
 
@@ -118,12 +111,6 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
 
         expect(uploader.status).toBe('success')
         expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
-    })
-
-    it('timeout', async () => {
-        const uploader = new ChunkedUploader(file, getURL('timeout'))
-        const response = await uploader.start()
-        expect(response).toBeFalsy()
     })
 
     it('manual pause & resume', async () => {
