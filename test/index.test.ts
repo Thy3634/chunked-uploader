@@ -36,7 +36,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
     let listener: Listener;
     const getURL = (url: string) => joinURL(listener.url, url);
 
-    const location = dirname(resolve(fileURLToPath(import.meta.url), '../'))
+    const __root = dirname(resolve(fileURLToPath(import.meta.url), '../'))
     let file: File
 
     beforeAll(async () => {
@@ -44,12 +44,16 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         app.use(router)
         listener = await listen(toNodeListener(app))
 
-        file = new File([await openAsBlob(resolve(location, './test/test.jpg'))], 'test.jpg')
+        file = new File([await openAsBlob(resolve(__root, './test/test.jpg'))], 'test.jpg')
     })
 
     afterAll(async () => {
-        listener.close().catch(console.error);
-        await rm(resolve(location, '.temp'), { recursive: true })
+        listener.close().catch(console.error)
+        try {
+            await rm(resolve(__root, '.temp'), { recursive: true, force: true })
+        } catch (error) {
+            console.error(error)
+        }
     })
 
     it('ok', async () => {
@@ -67,7 +71,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
 
         await uploader.start()
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('offline', async () => {
@@ -110,7 +114,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
 
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('manual pause & resume', async () => {
@@ -131,7 +135,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         uploader.resume()
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('store & restore', async () => {
@@ -157,7 +161,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         uploader2.start([0])
         expect(uploader2.chunks[0].status).toBe('success')
         await new Promise((resolve) => uploader2.onsuccess = resolve)
-        expect(await uploader2.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(location, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader2.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })
 
