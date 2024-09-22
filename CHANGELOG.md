@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.0.3
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.2...v0.0.3)
+
+### 🩹 Fixes
+
+- Remove jiti and vite dependencies ([a41b297](https://github.com/Thy3634/chunked-uploader/commit/a41b297))
+
+### 🏡 Chore
+
+- **release:** V0.0.2 ([87f391a](https://github.com/Thy3634/chunked-uploader/commit/87f391a))
+
+### ✅ Tests
+
+- Avoid error ([6aa9a4d](https://github.com/Thy3634/chunked-uploader/commit/6aa9a4d))
+
+### ❤️ Contributors
+
+- Thy <thy3634@qq.com>
+
 ## v0.0.2
 
 [compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.1...v0.0.2)

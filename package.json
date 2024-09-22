@@ -1,6 +1,6 @@
 {
   "name": "@thy3634/chunked-uploader",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.",
   "sideEffects": false,
   "scripts": {
@@ -38,6 +38,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "dependencies": {
     "defu": "^6.1.4",
     "hash-wasm": "^4.11.0",
