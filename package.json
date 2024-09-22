@@ -1,6 +1,6 @@
 {
   "name": "@thy3634/chunked-uploader",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.",
   "sideEffects": false,
   "scripts": {

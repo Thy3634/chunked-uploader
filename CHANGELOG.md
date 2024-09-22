@@ -1,6 +1,19 @@
 # Changelog
 
 
+## v0.0.4
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.3...v0.0.4)
+
+### 🏡 Chore
+
+- **release:** V0.0.3 ([d63d05f](https://github.com/Thy3634/chunked-uploader/commit/d63d05f))
+- Update package.json, remove engine ([e6dd695](https://github.com/Thy3634/chunked-uploader/commit/e6dd695))
+
+### ❤️ Contributors
+
+- Thy <thy3634@qq.com>
+
 ## v0.0.3
 
 [compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.2...v0.0.3)
