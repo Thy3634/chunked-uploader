@@ -174,8 +174,9 @@ export class ChunkedUploader extends EventTarget {
             if (Number.isFinite(this.#requestOptions.limit)) {
                 const limit = pLimit(this.#requestOptions.limit)
                 response = await Promise.all(this.#chunks.map(chunk => limit(() => this.#uploadChunk(chunk))))
+            } else {
+                response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
             }
-            response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
             this.#status = 'success'
             this.#dispatchEventByType('success')
             return response
