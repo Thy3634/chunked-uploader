@@ -1,8 +1,10 @@
 import { createMD5 } from 'hash-wasm'
 
+const workerSelf = self as unknown as DedicatedWorkerGlobalScope
+
 const hasherPromise = createMD5()
 
-onmessage = async (event: MessageEvent<{ type: 'update', data: ArrayBuffer | Uint8Array } | { type: 'digest' } | { type: 'init' }>) => {
+workerSelf.addEventListener('message', async (event: MessageEvent<{ type: 'update', data: ArrayBuffer | Uint8Array } | { type: 'digest' } | { type: 'init' }>) => {
     const data = event.data
     const hasher = await hasherPromise
     switch (data.type) {
@@ -23,4 +25,4 @@ onmessage = async (event: MessageEvent<{ type: 'update', data: ArrayBuffer | Uin
             throw new Error('Unknown type')
         }
     }
-}
+})

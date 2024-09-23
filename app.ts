@@ -1,5 +1,4 @@
 import {
-    assertMethod,
     createApp, createError, createRouter, eventHandler, fromNodeMiddleware,
     getHeader,
     getRouterParams,
@@ -16,6 +15,7 @@ import { writeFile } from 'node:fs/promises'
 import { webcrypto as crypto } from 'node:crypto'
 import { extname, resolve } from 'node:path'
 import { createWriteStream, existsSync } from 'node:fs'
+import { hexStringToBase64 } from './src/utils'
 
 interface Conf {
     fileSize: number,
@@ -43,7 +43,6 @@ export const router = createRouter()
     .post(
         "/chunked-upload",
         eventHandler(async (event) => {
-            assertMethod(event, 'POST')
             const body = await readBody<Conf>(event)
             console.assert(typeof body.fileSize === 'number', 'fileSize')
             console.assert(typeof body.filename === 'string', 'filename')
@@ -52,10 +51,10 @@ export const router = createRouter()
             await storage.set(id, body)
             return { id }
         })
-    ).post(
+    )
+    .put(
         "/chunked-upload/:id/:i",
         eventHandler(async (event) => {
-            assertMethod(event, 'POST')
             const { id, i } = getRouterParams(event)
             const conf = await storage.get(id) as Conf | null
             if (!conf)
@@ -96,6 +95,3 @@ export const router = createRouter()
 
 app.use(router)
 
-function hexStringToBase64(hexString: string) {
-    return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
-}

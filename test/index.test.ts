@@ -14,6 +14,7 @@ import { ChunkedUploader } from '../src'
 import { md5 } from "hash-wasm"
 import { openAsBlob } from "node:fs"
 import { router } from "../app"
+import { hexStringToBase64 } from "../src/utils"
 
 const listeners = new Map<string, Set<EventListener>>()
 
@@ -32,9 +33,20 @@ vi.stubGlobal('window', {
     }
 })
 
+
 describe('chunked uploader', { timeout: 20_000 }, () => {
     let listener: Listener;
-    const getURL = (url: string) => joinURL(listener.url, url);
+    const getURL = (url: string) => joinURL(listener.url, url)
+    function getRequester(id: string) {
+        return async ({ index, buffer, start, end }) => ofetch(getURL(joinURL('chunked-upload', id, index.toString())), {
+            method: 'POST',
+            body: await buffer,
+            headers: {
+                'Range': `bytes=${start}-${end - 1}`,
+                'Content-Digest': `md5=:${hexStringToBase64(await md5(new Uint8Array(await buffer)))}:`
+            }
+        })
+    }
 
     const __root = dirname(resolve(fileURLToPath(import.meta.url), '../'))
     let file: File
@@ -64,7 +76,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        const uploader = new ChunkedUploader(file, getRequester(id))
         function onEnd() { '' }
         uploader.addEventListener('end', onEnd)
         uploader.removeEventListener('end', onEnd)
@@ -82,7 +94,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        const uploader = new ChunkedUploader(file, getRequester(id))
 
         uploader.onLine = false
 
@@ -98,7 +110,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        const uploader = new ChunkedUploader(file, getRequester(id))
 
         uploader.start()
         if (listeners.has('offline'))
@@ -125,7 +137,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        const uploader = new ChunkedUploader(file, getRequester(id))
 
         uploader.start()
         expect(uploader.status).toBe('pending')
@@ -146,26 +158,12 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 filename: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
-        await ofetch(getURL(joinURL('chunked-upload', id, '0')), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream',
-                'Range': `bytes=${uploader.chunks[0].start}-${uploader.chunks[0].end - 1}`,
-                'Content-Digest': `md5=:${hexStringToBase64(await uploader.chunks[0].blob.arrayBuffer().then(buffer => md5(new Uint8Array(buffer))))}:`
-            },
-            body: uploader.chunks[0].blob,
-            retry: 3
-        })
-        const uploader2 = new ChunkedUploader(uploader.store(), ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+        const uploader = new ChunkedUploader(file, getRequester(id))
+        await getRequester(id)(uploader.chunks[0])
+        const uploader2 = new ChunkedUploader(await uploader.store(), getRequester(id))
         uploader2.start([0])
         expect(uploader2.chunks[0].status).toBe('success')
         await new Promise((resolve) => uploader2.onsuccess = resolve)
         expect(await uploader2.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })
-
-function hexStringToBase64(hexString: string) {
-    return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
-}
-

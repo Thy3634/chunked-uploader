@@ -3,6 +3,8 @@
  */
 import { ofetch } from "ofetch"
 import { ChunkedUploader } from "."
+import { hexStringToBase64 } from "./utils"
+import { md5 } from "hash-wasm"
 
 const form = document.querySelector('#form') as HTMLFormElement
 const fileInput = document.querySelector('#file-input') as HTMLInputElement
@@ -14,7 +16,7 @@ const uploadButton = document.querySelector('#upload-button') as HTMLButtonEleme
  * Create a web worker to calculate the md5 hash of a file.
  * @returns A object with three methods: `init`, `update`, `digest`.
  */
-function md5() {
+function hashCreater() {
     const worker = new Worker(new URL('hash.worker.ts', import.meta.url), { type: 'module' })
     worker.addEventListener('error', console.error)
     worker.addEventListener('messageerror', console.error)
@@ -55,13 +57,19 @@ fileInput.addEventListener('change', async () => {
             }
         })
 
-        const uploader = new ChunkedUploader(file, (chunk) => `/chunked-upload/${id}/${chunk.index}`, {
-            body: (chunk) => {
-                const formData = new FormData()
-                formData.append('file', chunk.blob)
-                return formData
-            },
-            hashCreater: md5,
+        const uploader = new ChunkedUploader(file, async ({ index, blob, start, end }) => {
+            const formData = new FormData()
+            formData.append('file', blob)
+            return ofetch(`/chunked-upload/${id}/${index}`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Range': `bytes=${start}-${end - 1}`,
+                    'Content-Digest': `md5=:${hexStringToBase64(await md5(new Uint8Array(await blob.arrayBuffer())))}:`
+                }
+            })
+        }, {
+            hashCreater,
             chunkSize: Number.parseInt(chunkSizeInput.value) * 1024 * 1024,
             // Set `options.limit` to limit the number of upload requests. 
             // limit: navigator.hardwareConcurrency, // The number of CPU cores.

@@ -1,5 +1,3 @@
-import { ofetch } from 'ofetch'
-import type { FetchOptions, $Fetch, ResponseType, MappedResponseType } from 'ofetch'
 import { defu } from 'defu'
 import { createMD5 } from 'hash-wasm'
 import pLimit from 'p-limit'
@@ -8,13 +6,11 @@ import pLimit from 'p-limit'
  * ChunkedUploader is a class that facilitates uploading files in chunks.
  * It provides methods to start, pause, resume, and abort the upload.
  * The class also emits events to notify the progress and status of the upload.
- *
- * @template T - The type of the response data of chunk. https://github.com/unjs/ofetch?tab=readme-ov-file#%EF%B8%8F-type-friendly
  */
-export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends EventTarget {
+export class ChunkedUploader extends EventTarget {
     #fileInfo: FileInfo
 
-    #requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo)
+    #requester: Requester
     #abortController: AbortController = new AbortController()
     #requestOptions
 
@@ -25,13 +21,17 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     /** The number of chunks that have been uploaded */
     get loaded() { return this.#loaded }
 
-    #chunks: Chunk<T, R>[]
+    #chunks: Chunk[]
     /** An array of chunks that make up the file */
     get chunks() { return this.#chunks }
 
     #hash: Promise<string>
     /** A promise that resolves to the hash (hex) of the file's data */
     get hash() { return this.#hash }
+    #hashLoaded = 0
+    get hashProgress() {
+        return this.#hashLoaded / this.#total
+    }
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
     /** The current status of the upload process. */
@@ -44,7 +44,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     /** Is network online. 
      * - When it is set to `false`, the upload will be paused. When it is set to `true`, the upload will be resumed. 
      * - If `window` is available, automatically update, and pause/resume the upload.
-     * @default If `navigator` is available, use the value of `navigator.onLine`, otherwise  `true`.
+     * @default If `navigator` is available, use the value of `navigator.onLine`, otherwise `true`.
      */
     get onLine() { return this.#onLine }
     set onLine(value) {
@@ -58,37 +58,16 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
 
     /**
      * @param file The file to upload, or an object containing the file's information and an array of chunks
-     * @param requestInfo Request information, or a function that returns request information based on the chunk and file information
-     * @param options Based on the FetchOptions type from the ofetch library, with some additional properties.
+     * @param requester A function that returns response based on each chunk and file information
+     * @param options Optional parameters to customize the uploader
      */
-    constructor(file: File | FileInfo & { chunks: Array<Chunk<T, R>> } | FileInfo & { arrayBuffer: ArrayBuffer | SharedArrayBuffer }, requestInfo: RequestInfo | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInfo), requestOptions?: RequestOptions<T, R>) {
+    constructor(file: File | FileInfo & { chunks: Array<Chunk> } | FileInfo & { buffer: ArrayBuffer | SharedArrayBuffer }, requester: Requester, options?: ChunkedUploaderOptions) {
         super()
-        this.#fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified, type: file.type }
-        Object.defineProperties(this.#fileInfo, {
-            name: { writable: false, enumerable: true },
-            size: { writable: false, enumerable: true },
-            lastModified: { writable: false, enumerable: true }
-        })
-        this.#requestInfo = requestInfo
-        this.#requestOptions = defu(requestOptions, {
-            method: 'POST',
-            signal: this.#abortController.signal,
+        this.#fileInfo = { name: file.name, size: file.size }
+        this.#requester = requester
+        this.#requestOptions = defu(options, {
             chunkSize: 1024 * 1024 * 5,
-            instance: ofetch,
-            retry: 3,
-            retryDelay: 3000,
             hashCreater: function md5() { return createMD5() },
-            body: (chunk: Chunk<T, R>) => chunk.blob,
-            headers: async (chunk: Chunk<T, R>) => {
-                const headers = new Headers()
-                if (!requestOptions?.body)
-                    headers.set('Content-Type', 'application/octet-stream')
-                headers.set('Range', `bytes=${chunk.start}-${chunk.end - 1}`)
-                if (this.#requestOptions.hashCreater?.name && await chunk.hash) {
-                    headers.set('Content-Digest', `${this.#requestOptions.hashCreater.name}=:${hexStringToBase64(await chunk.hash!)}:`)
-                }
-                return headers
-            },
             limit: Infinity,
         })
 
@@ -97,25 +76,24 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
                 const start = index * this.#requestOptions.chunkSize
                 const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
-                const blob = file.slice(start, end)
+                const buffer = file.slice(start, end).arrayBuffer()
                 return {
-                    index, blob, start, end, status: 'idle', response: undefined,
+                    index, buffer, start, end, status: 'idle', response: undefined,
                     hash: Promise.resolve(this.#requestOptions.hashCreater())
                         .then(async hasher => {
                             await hasher.init?.()
-                            await hasher.update(new Uint8Array(await blob.arrayBuffer()))
+                            await hasher.update(new Uint8Array(await buffer))
                             return await hasher.digest()
                         })
                 }
             })
-        } else if ('arrayBuffer' in file) {
+        } else if ('buffer' in file) {
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
                 const start = index * this.#requestOptions.chunkSize
                 const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
-                const buffer = file.arrayBuffer.slice(start, end)
-                const blob = new Blob([buffer], { type: file.type })
+                const buffer = file.buffer.slice(start, end)
                 return {
-                    index, blob, start, end, status: 'idle', response: undefined,
+                    index, buffer, start, end, status: 'idle', response: undefined,
                     hash: Promise.resolve(this.#requestOptions.hashCreater())
                         .then(async (hasher) => {
                             await hasher.init?.()
@@ -136,16 +114,17 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
                 hasher.init = undefined
             }
             for (const chunk of this.#chunks) {
-                await hasher.update(new Uint8Array(await chunk.blob.arrayBuffer()))
+                await hasher.update(new Uint8Array(await chunk.buffer))
+                this.#hashLoaded++
             }
             return await hasher.digest()
         })
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
 
-        if (typeof window !== 'undefined') {
-            window.addEventListener('online', this.#ononline)
-            window.addEventListener('offline', this.#onoffline)
+        if (typeof addEventListener !== 'undefined') {
+            addEventListener('online', this.#ononline)
+            addEventListener('offline', this.#onoffline)
         }
     }
 
@@ -211,7 +190,7 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         }
     }
 
-    async #uploadChunk(chunk: Chunk<T, R>) {
+    async #uploadChunk(chunk: Chunk) {
         if (chunk.status === 'success') {
             this.#loaded++
             this.#dispatchEventByType('progress')
@@ -219,14 +198,10 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
         }
         chunk.status = 'pending'
         try {
-            const response = this.#requestOptions.instance<T, R>(this.#requestInfo instanceof Function ? this.#requestInfo(chunk, this.#fileInfo) : this.#requestInfo, {
-                ...this.#requestOptions,
-                body: await this.#requestOptions.body(chunk, this.#fileInfo),
-                headers: this.#requestOptions.headers instanceof Function ? await this.#requestOptions.headers(chunk, this.#fileInfo) : this.#requestOptions.headers
-            })
+            const response = this.#requester(chunk, this.#fileInfo)
             chunk.status = 'success'
-            chunk.response = response
-            response.then(() => {
+            response.then((res) => {
+                chunk.response = res
                 this.#loaded++
                 this.#dispatchEventByType('progress')
             })
@@ -269,30 +244,30 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
 
     #onoffline = (_e: Event) => { this.onLine = false }
 
-    addEventListener(type: ChunkedUploaderEventType, callback: ChunkedUploaderEventListener<T, R> | { handleEvent: ChunkedUploaderEventListener<T, R> } | null, options?: AddEventListenerOptions | boolean): void {
+    addEventListener(type: ChunkedUploaderEventType, callback: ChunkedUploaderEventListener | { handleEvent: ChunkedUploaderEventListener } | null, options?: AddEventListenerOptions | boolean): void {
         super.addEventListener(type, callback as EventListenerOrEventListenerObject, options)
     }
 
-    removeEventListener(type: ChunkedUploaderEventType, callback: ChunkedUploaderEventListener<T, R> | { handleEvent: ChunkedUploaderEventListener<T, R> } | null, options?: EventListenerOptions | boolean): void {
+    removeEventListener(type: ChunkedUploaderEventType, callback: ChunkedUploaderEventListener | { handleEvent: ChunkedUploaderEventListener } | null, options?: EventListenerOptions | boolean): void {
         super.removeEventListener(type, callback as EventListenerOrEventListenerObject, options)
     }
 
     /** Fired when the upload has started */
-    onstart?: ChunkedUploaderEventListener<T, R> = undefined
+    onstart?: ChunkedUploaderEventListener = undefined
     /** Fired when an error occurs during the upload */
-    onerror?: ChunkedUploaderEventListener<T, R> = undefined
+    onerror?: ChunkedUploaderEventListener = undefined
     /** Fired periodically as any chunk uploaded */
-    onprogress?: ChunkedUploaderEventListener<T, R> = undefined
+    onprogress?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been successfully completed */
-    onsuccess?: ChunkedUploaderEventListener<T, R> = undefined
+    onsuccess?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has completed, successfully or not. */
-    onend?: ChunkedUploaderEventListener<T, R> = undefined
+    onend?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been paused: for instance because the program called `ChunkedUploader.pause()` */
-    onpause?: ChunkedUploaderEventListener<T, R> = undefined
+    onpause?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been resumed: for instance because the program called `ChunkedUploader.resume()` */
-    onresume?: ChunkedUploaderEventListener<T, R> = undefined
+    onresume?: ChunkedUploaderEventListener = undefined
 
-    dispatchEvent(event: ChunkedUploaderEvent<T, R>): boolean {
+    dispatchEvent(event: ChunkedUploaderEvent): boolean {
         const method = `on${event.type}` as `on${ChunkedUploaderEventType}`
         if (typeof this[method] === 'function')
             this[method](event)
@@ -300,31 +275,36 @@ export class ChunkedUploader<T = any, R extends ResponseType = 'json'> extends E
     }
 
     #dispatchEventByType(type: ChunkedUploaderEventType) {
-        const event = new ChunkedUploaderEvent<T, R>(type, this)
+        const event = new ChunkedUploaderEvent(type, this)
         this.dispatchEvent(event)
     }
 
     /**
      * Get the file information and chunks so that you can store them and reconstruct the uploader later.
      */
-    store() {
+    async store() {
         return {
             ...this.#fileInfo,
-            chunks: this.#chunks.map<Chunk>(chunk => ({ ...chunk, status: chunk.status === 'success' ? 'success' : 'idle', response: undefined })),
+            chunks: await Promise.all<Chunk>(this.#chunks.map(async chunk => ({
+                ...chunk,
+                buffer: await chunk.buffer,
+                status: chunk.status === 'success' ? 'success' : 'idle',
+                hash: await chunk.hash
+            }))),
         }
     }
 }
 
-class ChunkedUploaderEvent<T = any, R extends ResponseType = 'json'> extends Event {
+class ChunkedUploaderEvent extends Event {
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/ProgressEvent/lengthComputable) */
     readonly lengthComputable: boolean = true
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/ProgressEvent/loaded) */
     readonly loaded: number
-    readonly target: ChunkedUploader<T, R>
+    readonly target: ChunkedUploader
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/ProgressEvent/total) */
     readonly total: number
 
-    constructor(type: ChunkedUploaderEventType, target: ChunkedUploader<T, R>, eventInitDict?: EventInit) {
+    constructor(type: ChunkedUploaderEventType, target: ChunkedUploader, eventInitDict?: EventInit) {
         super(type, eventInitDict)
         this.target = target
         this.total = target.total
@@ -332,54 +312,17 @@ class ChunkedUploaderEvent<T = any, R extends ResponseType = 'json'> extends Eve
     }
 }
 
-interface ChunkedUploaderEventListener<T = any, R extends ResponseType = ResponseType> {
-    (event: ChunkedUploaderEvent<T, R>): void
+interface ChunkedUploaderEventListener {
+    (event: ChunkedUploaderEvent): void
 }
 
 type ChunkedUploaderEventType = 'progress' | 'success' | 'error' | 'start' | 'end' | 'pause' | 'resume'
 
-/**
- * Based on the {@link FetchOptions} type from the `ofetch` library, with some additional properties.
- * @see https://github.com/unjs/ofetch
- * @template R - The expected response type.
- */
-type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<FetchOptions<R>, 'body' | 'headers'> & {
-    /** A string to set request's method.
-     * @default 'POST'
-     */
-    method?: string;
-    /**
-     * 
-     * @param chunk chunk, including index, blob, start, end, status, hash
-     * @param fileInfo file info, including name, size, lastModified
-     * @returns 
-     * @default (chunk) => chunk.blob
-     */
-    body?: (chunk: Chunk<T, R>, fileInfo: FileInfo) => RequestInit["body"] | Record<string, any> | Promise<RequestInit["body"] | Record<string, any>>
+type ChunkedUploaderOptions = {
     /** The size of each chunk in bytes.
      * @default 1024 * 1024 * 5
      */
     chunkSize?: number
-    /**
-     * The ofetch instance to use for making requests.
-     * @default ofetch
-     */
-    instance?: $Fetch
-    /**
-     * The number of times to retry a request if it fails.
-     * @default 3
-     */
-    retry?: number
-    /**
-     * The delay in milliseconds between retries.
-     * @default 3000
-     */
-    retryDelay?: number
-    /**
-     * @link [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range) [Content-Digest](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Digest)
-     * @default (chunk) => { 'Content-Type': 'application/octet-stream', 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5(chunk.blob)}:` }
-     */
-    headers?: HeadersInit | ((chunk: Chunk<T, R>, fileInfo: FileInfo) => HeadersInit | Promise<HeadersInit>)
     /** 
      * The hasher to use for calculating the hash of the file's data.
      * @link [hash-wasm](https://github.com/Daninet/hash-wasm)
@@ -388,12 +331,6 @@ type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<Fetch
     hashCreater?: HasherCreater | null
     /** The number of request concurrency limit. */
     limit?: number
-    /**
-     * @experimental
-     * The number of concurrency limit for hash calculation.
-     * @default typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency
-     */
-    hashConcurrency?: number
 }
 
 /**
@@ -402,24 +339,24 @@ type RequestOptions<T = any, R extends ResponseType = ResponseType> = Omit<Fetch
  * @remarks
  * A chunk is a subset of the file data, identified by its index, start and end positions.
  */
-interface Chunk<T = any, R extends ResponseType = 'json'> {
+interface Chunk {
     /** The index of the chunk in the sequence of chunks that make up the file. */
     index: number
-    /** A new `Blob` object which contains data from a subset of the file */
-    blob: Blob
-    /** An index into the file indicating the first byte to include in the blob. */
+    /** A `Promise` that resolves to the data from a subset of the file as an `ArrayBuffer`. */
+    buffer: Promise<ArrayBuffer> | ArrayBuffer
+    /** An index into the file indicating the first byte to include in the buffer. */
     start: number
-    /** An index into the file indicating the first byte that will not be included in the blob (i.e. the byte exactly at this index is not included). */
+    /** An index into the file indicating the first byte that will not be included in the buffer (i.e. the byte exactly at this index is not included). */
     end: number
     /** The uploading status of this chunk. when error occurred, reset to 'idle' */
     status: 'pending' | 'success' | 'idle'
     /** Response of chunk upload */
-    response?: Promise<MappedResponseType<R, T>>
+    response?: unknown
     /** hash as a hexadecimal string */
-    hash?: Promise<string>
+    hash: Promise<string> | string
 }
 
-type FileInfo = Pick<File, 'name' | 'size' | 'lastModified' | 'type'>
+type FileInfo = Pick<File, 'name' | 'size'>
 
 interface Hasher {
     init?: () => any
@@ -432,6 +369,4 @@ interface HasherCreater {
     (): Promise<Hasher> | Hasher
 }
 
-function hexStringToBase64(hexString: string) {
-    return btoa(hexString.match(/\w{2}/g)!.map(byte => String.fromCodePoint(Number.parseInt(byte, 16))).join(''))
-}
+type Requester = (chunk: Chunk, fileInfo: FileInfo) => Promise<unknown>

@@ -12,7 +12,8 @@
     ],
     "lib": [
       "DOM",
-      "ESNext"
+      "ESNext",
+      "WebWorker"
     ]
   },
   "include": [
