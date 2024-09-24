@@ -17,8 +17,8 @@ workerSelf.addEventListener('message', async (event: MessageEvent<{ type: 'updat
             break
         }
         case 'digest': {
-            const hash = hasher.digest()
-            postMessage({ type: data.type, hash })
+            const digest = hasher.digest()
+            postMessage({ type: data.type, digest })
             break
         }
         default: {

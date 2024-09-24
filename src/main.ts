@@ -18,7 +18,8 @@ fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0]
     if (file) {
         chunkSizeInput.disabled = true
-
+        concurrencyLimitInfinityInput.disabled = true
+        concurrencyLimitInput.disabled = true
         worker.postMessage({
             type: 'init',
             buffer: await file.arrayBuffer(),

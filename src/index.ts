@@ -8,11 +8,10 @@ import pLimit from 'p-limit'
  * The class also emits events to notify the progress and status of the upload.
  */
 export class ChunkedUploader extends EventTarget {
-    #fileInfo: FileInfo
+    fileInfo: FileInfo
 
-    #requester: Requester
-    abortController: AbortController
-    #requestOptions
+    requester: Requester
+    options
 
     #total: number = 1
     /** The number of chunks */
@@ -63,27 +62,25 @@ export class ChunkedUploader extends EventTarget {
      */
     constructor(file: File | FileInfo & { chunks: Array<Chunk> } | FileInfo & { buffer: ArrayBuffer | SharedArrayBuffer }, requester: Requester, options?: ChunkedUploaderOptions) {
         super()
-        this.#fileInfo = { name: file.name, size: file.size }
-        this.#requester = requester
-        this.#requestOptions = defu(options, {
+        this.fileInfo = { name: file.name, size: file.size }
+        this.requester = requester
+        this.options = defu(options, {
             chunkSize: 1024 * 1024 * 5,
             createHasher: createMD5,
             limit: Infinity,
             abortController: new AbortController()
         })
-        this.abortController = this.#requestOptions.abortController
 
-        this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
+        this.#total = Math.ceil(file.size / this.options.chunkSize)
         if (file instanceof File) {
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
-                const start = index * this.#requestOptions.chunkSize
-                const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
+                const start = index * this.options.chunkSize
+                const end = Math.min(start + this.options.chunkSize, file.size)
                 const buffer = file.slice(start, end).arrayBuffer()
                 return {
                     index, buffer, start, end, status: 'idle', response: undefined,
-                    digest: Promise.resolve(this.#requestOptions.createHasher)
-                        .then(async createHasher => {
-                            const hasher = await createHasher()
+                    digest: Promise.resolve(this.options.createHasher())
+                        .then(async hasher => {
                             await hasher.init?.()
                             await hasher.update(new Uint8Array(await buffer))
                             return await hasher.digest()
@@ -92,18 +89,23 @@ export class ChunkedUploader extends EventTarget {
             })
         } else if ('buffer' in file) {
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
-                const start = index * this.#requestOptions.chunkSize
-                const end = Math.min(start + this.#requestOptions.chunkSize, file.size)
+                const start = index * this.options.chunkSize
+                const end = Math.min(start + this.options.chunkSize, file.size)
                 const buffer = file.buffer.slice(start, end)
                 return {
                     index, buffer, start, end, status: 'idle', response: undefined,
-                    digest: Promise.resolve(this.#requestOptions.createHasher)
-                        .then(async createHasher => {
-                            const hasher = await createHasher()
-                            await hasher.init?.()
-                            await hasher.update(new Uint8Array(buffer))
-                            return await hasher.digest()
-                        })
+                    digest: new Promise((resolve) => {
+                        const hasher = this.options.createHasher() as Hasher
+                        hasher.init?.()
+                        hasher.update(new Uint8Array(buffer))
+                        resolve(hasher.digest())
+                    })
+                    // digest: Promise.resolve(this.options.createHasher())
+                    //     .then(async hasher => {
+                    //         await hasher.init?.()
+                    //         await hasher.update(new Uint8Array(buffer))
+                    //         return await hasher.digest()
+                    //     })
                 }
             })
         } else {
@@ -112,8 +114,7 @@ export class ChunkedUploader extends EventTarget {
             this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
 
-        this.#digest = Promise.resolve(this.#requestOptions.createHasher).then(async createHasher => {
-            const hasher = await createHasher()
+        this.#digest = Promise.resolve(this.options.createHasher()).then(async hasher => {
             if (hasher.init) {
                 await hasher.init()
                 hasher.init = undefined
@@ -142,7 +143,7 @@ export class ChunkedUploader extends EventTarget {
      */
     abort() {
         if (this.#status !== 'pending') return false
-        this.abortController.abort()
+        this.options.abortController.abort()
         if (typeof removeEventListener !== 'undefined') {
             removeEventListener('online', this.#ononline)
             removeEventListener('offline', this.#onoffline)
@@ -176,8 +177,8 @@ export class ChunkedUploader extends EventTarget {
         try {
             this.#status = 'pending'
             let response
-            if (Number.isFinite(this.#requestOptions.limit)) {
-                const limit = pLimit(this.#requestOptions.limit)
+            if (Number.isFinite(this.options.limit)) {
+                const limit = pLimit(this.options.limit)
                 response = await Promise.all(this.#chunks.map(chunk => limit(() => this.#uploadChunk(chunk))))
             } else {
                 response = await Promise.all(this.#chunks.map(chunk => this.#uploadChunk(chunk)))
@@ -204,7 +205,7 @@ export class ChunkedUploader extends EventTarget {
         }
         chunk.status = 'pending'
         try {
-            chunk.response = await this.#requester(chunk, this.#fileInfo)
+            chunk.response = await this.requester(chunk, this.fileInfo)
             chunk.status = 'success'
             this.#loaded++
             this.#dispatchEventByType('progress')
@@ -287,7 +288,7 @@ export class ChunkedUploader extends EventTarget {
      */
     async store() {
         return {
-            ...this.#fileInfo,
+            ...this.fileInfo,
             chunks: await Promise.all<Chunk>(this.#chunks.map(async chunk => ({
                 ...chunk,
                 buffer: await chunk.buffer,

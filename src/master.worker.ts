@@ -33,7 +33,7 @@ workerSelf.addEventListener('message', async (e: MessageEvent<{
             })
 
             uploader = new ChunkedUploader({
-                buffer: buffer,
+                buffer,
                 name,
                 size: buffer.byteLength,
             }, async ({ buffer, index, start, end, digest }) => ofetch(`/chunked-upload/${id}/${index}`, {
@@ -43,7 +43,7 @@ workerSelf.addEventListener('message', async (e: MessageEvent<{
                     'Range': `bytes=${start}-${end - 1}`,
                     'Content-Digest': `md5=:${hexStringToBase64(await digest)}:`,
                 },
-                signal: uploader.abortController.signal, // pass an abort signal so that pause/abort works
+                signal: uploader.options.abortController.signal, // pass an abort signal so that pause/abort works
                 retry: 1,
             }), {
                 chunkSize,

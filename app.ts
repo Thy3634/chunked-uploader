@@ -47,9 +47,8 @@ export const router = createRouter()
         "/chunked-upload",
         eventHandler(async (event) => {
             const { size, name, chunkSize } = await readBody<Conf>(event)
-            console.assert(typeof size === 'number', 'file size is not number')
-            console.assert(typeof chunkSize === 'number', 'chunk size is not number')
-            console.assert(typeof name === 'string', 'file name is not string')
+            if (typeof size !== 'number') return createError({ status: 400, message: 'file size is not number' })
+            if (typeof chunkSize !== 'number') return createError({ status: 400, message: 'chunk size is not number' })
 
             const id = crypto.randomUUID()
             setHeader(event, 'ETag', id)
@@ -69,7 +68,7 @@ export const router = createRouter()
             const index = Number.parseInt(i)
             const conf = await uploadSessionStorage.get<Conf>(id)
             if (!conf)
-                throw createError({ status: 400 })
+                throw createError({ status: 404, message: 'The upload session ID not found' })
 
             const range = getHeader(event, 'Range')!
             const contentDigest = getHeader(event, 'Content-Digest')!
@@ -100,15 +99,13 @@ export const router = createRouter()
                 })
             })
 
-            const receivedIndexesSet = new Set([...conf.receivedIndexes, index])
-
-            if (receivedIndexesSet.size === Math.ceil(conf.size / conf.chunkSize)) {
-                uploadSessionStorage.remove(id)
-                return { index, completed: true }
-            }
-
-            await uploadSessionStorage.set(id, { ...conf, receivedIndexes: [...receivedIndexesSet] })
-            return { index, completed: false }
+            // const receivedIndexesSet = new Set([...conf.receivedIndexes, index])
+            // if (receivedIndexesSet.size >= Math.ceil(conf.size / conf.chunkSize)) {
+            //     await uploadSessionStorage.remove(id)
+            //     return { index, completed: true }
+            // }
+            // await uploadSessionStorage.set(id, { ...conf, receivedIndexes: [...receivedIndexesSet] })
+            return { index }
         })
     )
 
