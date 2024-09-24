@@ -11,7 +11,7 @@ export class ChunkedUploader extends EventTarget {
     #fileInfo: FileInfo
 
     #requester: Requester
-    #abortController: AbortController = new AbortController()
+    abortController: AbortController
     #requestOptions
 
     #total: number = 1
@@ -25,9 +25,9 @@ export class ChunkedUploader extends EventTarget {
     /** An array of chunks that make up the file */
     get chunks() { return this.#chunks }
 
-    #hash: Promise<string>
-    /** A promise that resolves to the hash (hex) of the file's data */
-    get hash() { return this.#hash }
+    #digest: Promise<string>
+    /** A promise that resolves to the digest (hex) of the file's data */
+    get digest() { return this.#digest }
     #hashLoaded = 0
     get hashProgress() {
         return this.#hashLoaded / this.#total
@@ -43,7 +43,7 @@ export class ChunkedUploader extends EventTarget {
     #onLine: boolean
     /** Is network online. 
      * - When it is set to `false`, the upload will be paused. When it is set to `true`, the upload will be resumed. 
-     * - If `window` is available, automatically update, and pause/resume the upload.
+     * - If `addEventListener` is available, automatically update, and pause/resume the upload.
      * @default If `navigator` is available, use the value of `navigator.onLine`, otherwise `true`.
      */
     get onLine() { return this.#onLine }
@@ -67,9 +67,11 @@ export class ChunkedUploader extends EventTarget {
         this.#requester = requester
         this.#requestOptions = defu(options, {
             chunkSize: 1024 * 1024 * 5,
-            hashCreater: function md5() { return createMD5() },
+            createHasher: createMD5,
             limit: Infinity,
+            abortController: new AbortController()
         })
+        this.abortController = this.#requestOptions.abortController
 
         this.#total = Math.ceil(file.size / this.#requestOptions.chunkSize)
         if (file instanceof File) {
@@ -79,8 +81,9 @@ export class ChunkedUploader extends EventTarget {
                 const buffer = file.slice(start, end).arrayBuffer()
                 return {
                     index, buffer, start, end, status: 'idle', response: undefined,
-                    hash: Promise.resolve(this.#requestOptions.hashCreater())
-                        .then(async hasher => {
+                    digest: Promise.resolve(this.#requestOptions.createHasher)
+                        .then(async createHasher => {
+                            const hasher = await createHasher()
                             await hasher.init?.()
                             await hasher.update(new Uint8Array(await buffer))
                             return await hasher.digest()
@@ -94,8 +97,9 @@ export class ChunkedUploader extends EventTarget {
                 const buffer = file.buffer.slice(start, end)
                 return {
                     index, buffer, start, end, status: 'idle', response: undefined,
-                    hash: Promise.resolve(this.#requestOptions.hashCreater())
-                        .then(async (hasher) => {
+                    digest: Promise.resolve(this.#requestOptions.createHasher)
+                        .then(async createHasher => {
+                            const hasher = await createHasher()
                             await hasher.init?.()
                             await hasher.update(new Uint8Array(buffer))
                             return await hasher.digest()
@@ -108,7 +112,8 @@ export class ChunkedUploader extends EventTarget {
             this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
 
-        this.#hash = Promise.resolve(this.#requestOptions.hashCreater()).then(async hasher => {
+        this.#digest = Promise.resolve(this.#requestOptions.createHasher).then(async createHasher => {
+            const hasher = await createHasher()
             if (hasher.init) {
                 await hasher.init()
                 hasher.init = undefined
@@ -122,7 +127,7 @@ export class ChunkedUploader extends EventTarget {
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
 
-        if (typeof addEventListener !== 'undefined') {
+        if (typeof addEventListener === 'function') {
             addEventListener('online', this.#ononline)
             addEventListener('offline', this.#onoffline)
         }
@@ -137,10 +142,10 @@ export class ChunkedUploader extends EventTarget {
      */
     abort() {
         if (this.#status !== 'pending') return false
-        this.#abortController.abort()
-        if (typeof window !== 'undefined') {
-            window.removeEventListener('online', this.#ononline)
-            window.removeEventListener('offline', this.#onoffline)
+        this.abortController.abort()
+        if (typeof removeEventListener !== 'undefined') {
+            removeEventListener('online', this.#ononline)
+            removeEventListener('offline', this.#onoffline)
         }
         return true
     }
@@ -287,8 +292,18 @@ export class ChunkedUploader extends EventTarget {
                 ...chunk,
                 buffer: await chunk.buffer,
                 status: chunk.status === 'success' ? 'success' : 'idle',
-                hash: await chunk.hash
+                digest: await chunk.digest
             }))),
+        }
+    }
+
+    /**
+     * remove online/offline event listeners
+     */
+    destroy() {
+        if (typeof removeEventListener === 'function') {
+            removeEventListener('online', this.#ononline)
+            removeEventListener('offline', this.#onoffline)
         }
     }
 }
@@ -318,7 +333,7 @@ type ChunkedUploaderEventType = 'progress' | 'success' | 'error' | 'start' | 'en
 
 type ChunkedUploaderOptions = {
     /** The size of each chunk in bytes.
-     * @default 1024 * 1024 * 5
+     * @default 5 * 1024 * 1024 (5MB)
      */
     chunkSize?: number
     /** 
@@ -326,9 +341,11 @@ type ChunkedUploaderOptions = {
      * @link [hash-wasm](https://github.com/Daninet/hash-wasm)
      * @default `createMD5`
      */
-    hashCreater?: HasherCreater | null
+    createHasher?: CreateHasher | null
     /** The number of request concurrency limit. */
     limit?: number
+    /** @default `new AbortController()` */
+    abortController?: AbortController
 }
 
 /**
@@ -340,7 +357,7 @@ type ChunkedUploaderOptions = {
 interface Chunk {
     /** The index of the chunk in the sequence of chunks that make up the file. */
     index: number
-    /** A `Promise` that resolves to the data from a subset of the file as an `ArrayBuffer`. */
+    /** The data from a subset of the file as an `ArrayBuffer`. */
     buffer: Promise<ArrayBuffer> | ArrayBuffer
     /** An index into the file indicating the first byte to include in the buffer. */
     start: number
@@ -350,8 +367,8 @@ interface Chunk {
     status: 'pending' | 'success' | 'idle'
     /** Response of chunk upload */
     response?: unknown
-    /** hash as a hexadecimal string */
-    hash: Promise<string> | string
+    /** Digest as a hexadecimal string */
+    digest: Promise<string> | string
 }
 
 type FileInfo = Pick<File, 'name' | 'size'>
@@ -362,8 +379,7 @@ interface Hasher {
     digest: (outputType?: any) => string | Promise<string>
 }
 
-interface HasherCreater {
-    name?: string
+interface CreateHasher {
     (): Promise<Hasher> | Hasher
 }
 

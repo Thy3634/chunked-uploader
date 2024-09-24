@@ -1,6 +1,5 @@
 # chunked-uploader
 
-
 <!-- automd:badges color=yellow packagephobia -->
 
 [![npm version](https://img.shields.io/npm/v/@thy3634/chunked-uploader?color=yellow)](https://npmjs.com/package/@thy3634/chunked-uploader)
@@ -8,9 +7,13 @@
 
 <!-- /automd -->
 
-Split file into chunks and upload. resumable, retriable, offline aware. Works on node, browser, and workers.
+Split file into chunks and upload. resumable, offline aware. Works on node, browser, and workers.
 
 ## Demo
+
+A Master-Worker pattern to upload a file in chunks. A master worker to process file, split it into chunks and upload, Using several workers to calculate MD5 of chunk.
+
+Include both backend and frontend.
 
 [![StackBlitz](https://img.shields.io/badge/StackBlitz-Open%20Demo-blue?logo=stackblitz)](https://stackblitz.com/~/github.com/Thy3634/chunked-uploader)
 
@@ -56,6 +59,7 @@ import { ChunkedUploader } from "@thy3634/chunked-uploader";
 ```js
 const { ChunkedUploader } = require("@thy3634/chunked-uploader");
 ```
+> [conditional exports](https://nodejs.org/api/packages.html#packages_conditional_exports)
 
 **CDN** (Deno, Bun and Browsers)
 
@@ -113,12 +117,12 @@ await uploader.start()
 | Property | Type | Description |
 | --- | --- | --- |
 | file | [`File`](https://developer.mozilla.org/zh-CN/docs/Web/API/File) \| `FileInfo & { chunks: Chunk[] }` | The file to upload, or an object containing the file's information and an array of chunks |
-| requestInfo | [`RequestInfo`](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/fetch#resource) \| `(chunk: Chunk, fileInfo: FileInfo) => RequestInfo` | Request information, or a function that returns request information based on the chunk and file information |
-| requestOptions | [`RequestOptions`](#requestoptions) | Based on the FetchOptions type from the ofetch library, with some additional properties. |
+| requester | `(chunk: Chunk, fileInfo: FileInfo) => Promise<unknown>` | A function that returns response based on each chunk and file information |
+| options | [`ChunkedUploaderOptions`](#ChunkedUploaderOptions) | Optional parameters to customize the uploader |
 
 #### Methods and Properties
 
-##### `start(): Promise<Response[]>`
+##### `start(): Promise<unknown[]>`
 Start the upload, if the upload is already started, do nothing, otherwise:
 - property `status` will be set to 'pending'
 - event `start` will be dispatched
@@ -126,7 +130,7 @@ Start the upload, if the upload is already started, do nothing, otherwise:
 ###### Parameters
 | Name | Type | Description |
 | --- | --- | --- |
-| skipIndexes | `number[]` | indexes of chunks to skip
+| skipIndexes | `number[]` | indexes of chunks to skip |
 
 ##### `pause(): boolean`
 Pause the upload, if it is not uploading, do nothing, otherwise:
@@ -134,7 +138,7 @@ Pause the upload, if it is not uploading, do nothing, otherwise:
 - method `abort` will be called
 - event `pause` will be dispatched
 
-##### `resume(): Promise<Response[]> | false`
+##### `resume(): Promise<unknown[]> | false`
 Resume the upload, if it is not paused, do nothing, otherwise:
 - property `status` will be set to 'pending'
 - event `resume` will be dispatched
@@ -194,17 +198,14 @@ uploader.addEventListener('success', (event) => {
 
 ### Types
 
-#### `RequestOptions`
+#### `ChunkedUploaderOptions`
 
 | Property | Type | Description | Default |
 | --- | --- | --- | --- |
 | chunkSize | `number` | The size of each chunk in bytes. | 1024 * 1024 * 5 |
-| body | `(chunk: Chunk, fileInfo: FileInfo) => RequestInit["body"] \| Record<string, any>` | A function that returns the body of the request based on the chunk and file information. | `chunk => chunk.blob` |
-| headers | [`HeadersInit`]() \| `(chunk: Chunk, fileInfo: FileInfo) => HeadersInit` | A function that returns the headers of the request based on the chunk and file information. | <code>(chunk) => { 'Content-Type': 'application/octet-stream', 'Range': `bytes=${chunk.start}-${chunk.end - 1}`, 'Content-Digest': `md5=:${base64md5(chunk.blob)}:` }</code> |
-| instance | [`$Fetch`](https://github.com/unjs/ofetch?tab=readme-ov-file#%EF%B8%8F-create-fetch-with-default-options) | The ofetch instance to use for making requests. | [`ofetch`](https://github.com/unjs/ofetch?tab=readme-ov-file#-quick-start) |
-| retry | `number` | The number of times to retry a request if it fails. | 3 |
-| retryDelay | `number` | The delay in milliseconds between retries. | 3000 |
 | limit | `number` | The maximum number of concurrent requests. | Infinity |
+| createHasher | `() => Promise<Hasher> | Hasher` | The hasher to use for calculating the hash of the file's data. | [hash-wasm](https://github.com/Daninet/hash-wasm)`createMD5` |
+| abortController | `AbortController` |  The controller to use for aborting the upload. | `new AbortController()` |
 
 > Http Header in default headers:
 > - [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range)
@@ -217,8 +218,10 @@ uploader.addEventListener('success', (event) => {
 | index | `number` | The index of the chunk |
 | start | `number` | The start byte of the chunk |
 | end | `number` | The end byte of the chunk, exclusive |
-| blob | [`Blob`](https://developer.mozilla.org/en-US/docs/Web/API/Blob) | The blob of the chunk |
+| buffer | [`ArrayBuffer \| Promise<ArrayBuffer>`](https://developer.mozilla.org/en-US/docs/Web/API/ArrayBuffer) | The blob of the chunk |
 | status | `'idle' \| 'pending' \| 'success'` | The status of the chunk |
+| response | `undefined \| unknown` | The response of the chunk's upload request |
+| digest | `Promise<string> \| string` | digest as a hexadecimal string |
 
 #### `FileInfo`
 
@@ -226,6 +229,14 @@ uploader.addEventListener('success', (event) => {
 | --- | --- | --- |
 | name | `string` | The name of the file |
 | size | `number` | The size of the file in bytes |
+
+#### `Hasher`
+
+| Property | Type | Description |
+| --- | --- | --- |
+| init | `undefined \| () => void \| Promise<void> | Initiate |
+| update | `(data: Uint8Array) => void \| Promise<void>` | Update the hasher with a chunk of data. |
+| digest | `() => Promise<string>` | Get the hash as a hexadecimal string. |
 
 ## Development
 

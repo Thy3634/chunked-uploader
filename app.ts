@@ -18,8 +18,11 @@ import { createWriteStream, existsSync } from 'node:fs'
 import { hexStringToBase64 } from './src/utils'
 
 interface Conf {
-    fileSize: number,
-    filename: string
+    size: number
+    name: string
+    receivedIndexes: number[]
+    chunkSize: number
+    digest?: string
 }
 
 export const app = createApp({
@@ -35,20 +38,27 @@ async function useVite() {
 // eslint-disable-next-line unicorn/prefer-top-level-await
 useVite()
 
-const storage = createStorage<Conf>({
-    driver: fsDriver({ base: "./.temp/storage" }),
+const uploadSessionStorage = createStorage<Conf>({
+    driver: fsDriver({ base: "./.temp/upload-session" }),
 })
 
 export const router = createRouter()
     .post(
         "/chunked-upload",
         eventHandler(async (event) => {
-            const body = await readBody<Conf>(event)
-            console.assert(typeof body.fileSize === 'number', 'fileSize')
-            console.assert(typeof body.filename === 'string', 'filename')
+            const { size, name, chunkSize } = await readBody<Conf>(event)
+            console.assert(typeof size === 'number', 'file size is not number')
+            console.assert(typeof chunkSize === 'number', 'chunk size is not number')
+            console.assert(typeof name === 'string', 'file name is not string')
+
             const id = crypto.randomUUID()
             setHeader(event, 'ETag', id)
-            await storage.set(id, body)
+            await uploadSessionStorage.set(id, {
+                size: size,
+                name: name,
+                receivedIndexes: [],
+                chunkSize,
+            })
             return { id }
         })
     )
@@ -56,20 +66,20 @@ export const router = createRouter()
         "/chunked-upload/:id/:i",
         eventHandler(async (event) => {
             const { id, i } = getRouterParams(event)
-            const conf = await storage.get(id) as Conf | null
+            const index = Number.parseInt(i)
+            const conf = await uploadSessionStorage.get<Conf>(id)
             if (!conf)
                 throw createError({ status: 400 })
 
-            const { filename } = conf
-            const range = getHeader(event, 'Range')
-            const contentDigest = getHeader(event, 'Content-Digest')
+            const range = getHeader(event, 'Range')!
+            const contentDigest = getHeader(event, 'Content-Digest')!
             const rangeExp = /^bytes=(\d+)-(\d+)$/
             const contentDigestExp = /^md5=:(.+):$/
             const [_, start] = rangeExp.exec(range!)!.map((it) => Number.parseInt(it))
             const chunk = getHeader(event, 'Content-Type')?.includes('multipart/form-data') ? new Uint8Array(await ((await readFormData(event)).get('file') as File).arrayBuffer()) : await readRawBody(event, false) as Buffer
-            console.assert(hexStringToBase64(await md5(chunk)) === contentDigestExp.exec(contentDigest!)![1], 'hash mismatch')
+            console.assert(hexStringToBase64(await md5(chunk)) === contentDigestExp.exec(contentDigest!)![1], 'digest mismatch')
 
-            const path = resolve('.temp', `${id}${extname(filename)}`)
+            const path = resolve('.temp', `${id}${extname(conf.name)}`)
             if (!existsSync(path))
                 await writeFile(path, [])
             const ws = createWriteStream(path, {
@@ -89,7 +99,16 @@ export const router = createRouter()
                     else resolve()
                 })
             })
-            return { index: i }
+
+            const receivedIndexesSet = new Set([...conf.receivedIndexes, index])
+
+            if (receivedIndexesSet.size === Math.ceil(conf.size / conf.chunkSize)) {
+                uploadSessionStorage.remove(id)
+                return { index, completed: true }
+            }
+
+            await uploadSessionStorage.set(id, { ...conf, receivedIndexes: [...receivedIndexesSet] })
+            return { index, completed: false }
         })
     )
 

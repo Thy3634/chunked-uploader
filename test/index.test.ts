@@ -72,8 +72,8 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         const { id } = await ofetch(getURL('/chunked-upload'), {
             method: 'POST',
             body: {
-                fileSize: file.size,
-                filename: file.name
+                size: file.size,
+                name: file.name
             }
         })
         const uploader = new ChunkedUploader(file, getRequester(id))
@@ -83,15 +83,15 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
 
         await uploader.start()
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader.digest).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('offline', async () => {
         const { id } = await ofetch(getURL('/chunked-upload'), {
             method: 'POST',
             body: {
-                fileSize: file.size,
-                filename: file.name
+                size: file.size,
+                name: file.name
             }
         })
         const uploader = new ChunkedUploader(file, getRequester(id))
@@ -106,8 +106,8 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         const { id } = await ofetch(getURL('chunked-upload'), {
             method: 'POST',
             body: {
-                fileSize: file.size,
-                filename: file.name
+                size: file.size,
+                name: file.name
             }
         })
         const uploader = new ChunkedUploader(file, getRequester(id))
@@ -126,15 +126,15 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
 
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader.digest).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('manual pause & resume', async () => {
         const { id } = await ofetch(getURL('chunked-upload'), {
             method: 'POST',
             body: {
-                fileSize: file.size,
-                filename: file.name
+                size: file.size,
+                name: file.name
             }
         })
         const uploader = new ChunkedUploader(file, getRequester(id))
@@ -147,15 +147,15 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         uploader.resume()
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
         expect(uploader.status).toBe('success')
-        expect(await uploader.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader.digest).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 
     it('store & restore', async () => {
         const { id } = await ofetch(getURL('chunked-upload'), {
             method: 'POST',
             body: {
-                fileSize: file.size,
-                filename: file.name
+                size: file.size,
+                name: file.name
             }
         })
         const uploader = new ChunkedUploader(file, getRequester(id))
@@ -164,6 +164,6 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         uploader2.start([0])
         expect(uploader2.chunks[0].status).toBe('success')
         await new Promise((resolve) => uploader2.onsuccess = resolve)
-        expect(await uploader2.hash).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
+        expect(await uploader2.digest).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })

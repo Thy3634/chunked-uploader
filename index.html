@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chunked Uploader</title>
     <meta name="description"
-        content="An example of using ChunkedUploader to upload a file, using multiple web workers to use wasm to calucate chunk's md5 in parallel." />
+        content="A Master-Worker pattern to upload a file in chunks. A master worker to process file, split it into chunks and upload, Using several workers to calculate MD5 of chunk." />
     <style>
         form {
             display: flex;
@@ -29,6 +29,13 @@
             <label>Chunk size (MB):
                 <input id="chunk-size-input" type="number" step="1" value="5" />
             </label>
+            <label>Infinity concurrency limit:
+                <input id="concurrency-limit-infinity-input" type="checkbox" name="concurrency-limit-infinity"
+                    checked />
+                <label id="concurrency-limit" style="display: none;">Concurrency limit:
+                    <input id="concurrency-limit-input" type="number" step=1 value=1 />
+                </label>
+            </label>
 
             <input type="file" id="file-input" />
             <p>
@@ -39,7 +46,8 @@
 
             <section>
                 <button id="submit-button" disabled type="submit">Submit</button>
-                <button id="reset-button" type="reset">Reset</button>
+                <button id="pause-button" disabled type="button">Pause</button>
+                <button id="resume-button" disabled type="button">Resume</button>
             </section>
 
             <p>
@@ -47,9 +55,9 @@
                 Open the .temp folder to see the result.
             </p>
 
-            <p>In this demo, you may see error "WebAssembly.instantiate(): Out of memory: Cannot sllocate Wasm memory
-                for new instance", see <a href="https://issues.chromium.org/issues/351165328">chromium issues</a>. You
-                can set the chunk size to a bigger value to avoid this error. Or use Firefox.</p>
+            <p>In this demo, you may see error: "WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory
+                for new instance", It's a <a href="https://issues.chromium.org/issues/351165328">chromium issues</a>.
+                You can set the chunk size to a bigger value to avoid this error. Or use Firefox.</p>
         </form>
 
     </article>
