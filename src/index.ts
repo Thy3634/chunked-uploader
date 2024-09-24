@@ -199,14 +199,11 @@ export class ChunkedUploader extends EventTarget {
         }
         chunk.status = 'pending'
         try {
-            const response = this.#requester(chunk, this.#fileInfo)
+            chunk.response = await this.#requester(chunk, this.#fileInfo)
             chunk.status = 'success'
-            response.then((res) => {
-                chunk.response = res
-                this.#loaded++
-                this.#dispatchEventByType('progress')
-            })
-            return response
+            this.#loaded++
+            this.#dispatchEventByType('progress')
+            return chunk.response
         } catch (error) {
             chunk.status = 'idle'
             throw error
