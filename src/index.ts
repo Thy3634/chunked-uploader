@@ -9,16 +9,14 @@ import pLimit from 'p-limit'
  */
 export class ChunkedUploader extends EventTarget {
     fileInfo: FileInfo
-
     requester: Requester
     options
 
     #total: number = 1
     /** The number of chunks */
     get total() { return this.#total }
-    #loaded: number = 0
     /** The number of chunks that have been uploaded */
-    get loaded() { return this.#loaded }
+    get loaded() { return this.chunks.filter(chunk => chunk.status === 'success').length }
 
     #chunks: Chunk[]
     /** An array of chunks that make up the file */
@@ -35,14 +33,13 @@ export class ChunkedUploader extends EventTarget {
             for (const chunk of this.#chunks) {
                 await hasher.update(new Uint8Array(await chunk.buffer))
                 this.#digestLoaded++
+                this.#dispatchEventByType('digestprogress')
             }
             return await hasher.digest()
         })
     }
     #digestLoaded = 0
-    get digestProgress() {
-        return this.#digestLoaded / this.#total
-    }
+    get digestLoaded() { return this.#digestLoaded }
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
     /** The current status of the upload process. */
@@ -68,13 +65,13 @@ export class ChunkedUploader extends EventTarget {
     }
 
     /**
-     * @param file The file to upload, or an object containing the file's information and an array of chunks
-     * @param requester A function that returns response based on each chunk and file information
+     * @param file The file to upload, or an object containing the file's information and buffer or chunks
+     * @param requester A function that returns response based on each chunk
      * @param options Optional parameters to customize the uploader
      */
     constructor(file: File | FileInfo & { chunks: Array<Chunk> } | FileInfo & { buffer: ArrayBuffer | SharedArrayBuffer }, requester: Requester, options?: ChunkedUploaderOptions) {
         super()
-        this.fileInfo = { name: file.name, size: file.size }
+        this.fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified, type: file.type }
         this.requester = requester
         this.options = defu(options, {
             chunkSize: 1024 * 1024 * 5,
@@ -123,7 +120,6 @@ export class ChunkedUploader extends EventTarget {
         } else {
             this.#chunks = file.chunks
             this.#total = file.chunks.length
-            this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -141,9 +137,9 @@ export class ChunkedUploader extends EventTarget {
      * - property `error` will be set to an `Error`
      * @returns if the upload is aborted
      */
-    abort() {
+    abort(reason?: any) {
         if (this.#status !== 'pending') return false
-        this.options.abortController.abort()
+        this.options.abortController.abort(reason)
         if (typeof removeEventListener !== 'undefined') {
             removeEventListener('online', this.#ononline)
             removeEventListener('offline', this.#onoffline)
@@ -199,15 +195,14 @@ export class ChunkedUploader extends EventTarget {
 
     async #uploadChunk(chunk: Chunk) {
         if (chunk.status === 'success') {
-            this.#loaded++
             this.#dispatchEventByType('progress')
             return chunk.response
         }
+        if (this.#status === 'paused') throw new Error('paused')
         chunk.status = 'pending'
         try {
-            chunk.response = await this.requester(chunk, this.fileInfo)
+            chunk.response = await this.requester(chunk)
             chunk.status = 'success'
-            this.#loaded++
             this.#dispatchEventByType('progress')
             return chunk.response
         } catch (error) {
@@ -217,16 +212,20 @@ export class ChunkedUploader extends EventTarget {
     }
 
     /**
+     * Only works when `options.limit` be set.
      * Pause the upload, if it is not uploading, do nothing, otherwise:
      * - property `status` will be set to 'paused'
-     * - method `abort` will be called
+     * - requests not started will be cancel.
      * - event `pause` will be dispatched
      * @returns if the upload is paused
      */
     pause() {
         if (this.#status !== 'pending') return false
+        if (!Number.isFinite(this.options.limit)) {
+            console.warn('pause only works when `options.limit` be set')
+            return false
+        }
         this.#status = 'paused'
-        this.abort()
         this.#dispatchEventByType('pause')
         return true
     }
@@ -270,6 +269,8 @@ export class ChunkedUploader extends EventTarget {
     onpause?: ChunkedUploaderEventListener = undefined
     /** Fired when the upload has been resumed: for instance because the program called `ChunkedUploader.resume()` */
     onresume?: ChunkedUploaderEventListener = undefined
+    /** Fired periodically as file digesting */
+    ondigestprogress?: ChunkedUploaderEventListener = undefined
 
     dispatchEvent(event: ChunkedUploaderEvent): boolean {
         const method = `on${event.type}` as `on${ChunkedUploaderEventType}`
@@ -323,7 +324,7 @@ class ChunkedUploaderEvent extends Event {
         super(type, eventInitDict)
         this.target = target
         this.total = target.total
-        this.loaded = target.loaded
+        this.loaded = type === 'digestprogress' ? target.digestLoaded : target.loaded
     }
 }
 
@@ -331,7 +332,7 @@ interface ChunkedUploaderEventListener {
     (event: ChunkedUploaderEvent): void
 }
 
-type ChunkedUploaderEventType = 'progress' | 'success' | 'error' | 'start' | 'end' | 'pause' | 'resume'
+type ChunkedUploaderEventType = 'progress' | 'success' | 'error' | 'start' | 'end' | 'pause' | 'resume' | 'digestprogress'
 
 type ChunkedUploaderOptions = {
     /** The size of each chunk in bytes.
@@ -375,7 +376,13 @@ interface Chunk {
     readonly digest: string | Promise<string>
 }
 
-type FileInfo = Pick<File, 'name' | 'size'>
+/** @link {https://developer.mozilla.org/zh-CN/docs/Web/API/File} */
+interface FileInfo {
+    name?: string
+    size: number
+    lastModified?: number
+    type?: string
+}
 
 interface Hasher {
     init?: () => any
@@ -387,4 +394,4 @@ interface CreateHasher {
     (): Promise<Hasher> | Hasher
 }
 
-type Requester = (chunk: Chunk, fileInfo: FileInfo) => Promise<unknown>
+type Requester = (chunk: Chunk) => Promise<unknown>

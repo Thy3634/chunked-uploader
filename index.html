@@ -32,7 +32,7 @@
             <label>Infinity concurrency limit:
                 <input id="concurrency-limit-infinity-input" type="checkbox" name="concurrency-limit-infinity"
                     checked />
-                <label id="concurrency-limit" style="display: none;">Concurrency limit:
+                <label id="concurrency-limit">Concurrency limit:
                     <input id="concurrency-limit-input" type="number" step=1 value=1 />
                 </label>
             </label>
@@ -41,6 +41,10 @@
             <p>
                 The file will be split into chunks, and each chunk will be calculated its md5.
             </p>
+            <section>
+                <button id="calculate-digest-button" disabled type="button">Calculate Digest</button>
+                <p id="digest"></p>
+            </section>
 
             <label>progress:<progress id="progress" max=100 value=0></progress></label>
 

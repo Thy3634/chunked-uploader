@@ -16,9 +16,10 @@ workerSelf.addEventListener('message', async (e: MessageEvent<{
     type: 'start'
     uploadedChunkIndexes?: number[]
 } | {
-    type: 'pause'
+    type: 'pause' | 'resume' | 'digest'
 } | {
-    type: 'resume'
+    type: 'setLimit'
+    value: number
 }>) => {
     switch (e.data.type) {
         case 'init': {
@@ -28,13 +29,12 @@ workerSelf.addEventListener('message', async (e: MessageEvent<{
                 body: {
                     size: buffer.byteLength,
                     name,
-                    chunkSize
+                    chunkSize,
                 }
             })
 
             uploader = new ChunkedUploader({
                 buffer,
-                name,
                 size: buffer.byteLength,
             }, async ({ buffer, index, start, end, digest }) => ofetch(`/chunked-upload/${id}/${index}`, {
                 method: 'PUT',
@@ -65,19 +65,32 @@ workerSelf.addEventListener('message', async (e: MessageEvent<{
                 workerSelf.postMessage({ type: 'error', error: { name: uploader.error?.name, message: uploader.error?.message } })
                 workerSelf.close()
             })
+            uploader.addEventListener('digestprogress', (e) => {
+                workerSelf.postMessage({ type: 'digestprogress', progress: e.loaded / e.total })
+            })
+            workerSelf.postMessage({ type: 'ready' })
             break
         }
         case 'start': {
             const { uploadedChunkIndexes } = e.data
-            uploader!.start(uploadedChunkIndexes)
+            uploader?.start(uploadedChunkIndexes)
             break
         }
         case 'pause': {
-            uploader!.pause()
+            uploader?.pause()
             break
         }
         case 'resume': {
-            uploader!.resume()
+            uploader?.resume()
+            break
+        }
+        case 'digest': {
+            workerSelf.postMessage({ type: 'digest', digest: await uploader.digest })
+            break
+        }
+        case 'setLimit': {
+            if (uploader)
+                uploader.options.limit = e.data.value
             break
         }
         default: {
