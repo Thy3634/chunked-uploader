@@ -92,7 +92,7 @@ workerSelf.addEventListener('message', async (e: MessageEvent<{
  * Create a web worker to calculate the md5 digest of a file.
  * @returns A object with three methods: `init`, `update`, `digest`.
  */
-function createHasher() {
+async function createHasher() {
     const worker = new Worker(new URL('hash.worker.ts', import.meta.url), { type: 'module' })
     worker.addEventListener('error', console.error)
     worker.addEventListener('messageerror', console.error)

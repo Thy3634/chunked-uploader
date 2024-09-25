@@ -24,12 +24,24 @@ export class ChunkedUploader extends EventTarget {
     /** An array of chunks that make up the file */
     get chunks() { return this.#chunks }
 
-    #digest: Promise<string>
+    #digest?: Promise<string>
     /** A promise that resolves to the digest (hex) of the file's data */
-    get digest() { return this.#digest }
-    #hashLoaded = 0
-    get hashProgress() {
-        return this.#hashLoaded / this.#total
+    get digest() {
+        return this.#digest ??= Promise.resolve(this.options.createHasher()).then(async hasher => {
+            if (hasher.init) {
+                await hasher.init()
+                hasher.init = undefined
+            }
+            for (const chunk of this.#chunks) {
+                await hasher.update(new Uint8Array(await chunk.buffer))
+                this.#digestLoaded++
+            }
+            return await hasher.digest()
+        })
+    }
+    #digestLoaded = 0
+    get digestProgress() {
+        return this.#digestLoaded / this.#total
     }
 
     #status: 'pending' | 'success' | 'idle' | 'error' | 'paused' = 'idle'
@@ -77,54 +89,42 @@ export class ChunkedUploader extends EventTarget {
                 const start = index * this.options.chunkSize
                 const end = Math.min(start + this.options.chunkSize, file.size)
                 const buffer = file.slice(start, end).arrayBuffer()
+                const createHasher = this.options.createHasher
                 return {
                     index, buffer, start, end, status: 'idle', response: undefined,
-                    digest: Promise.resolve(this.options.createHasher())
-                        .then(async hasher => {
-                            await hasher.init?.()
-                            await hasher.update(new Uint8Array(await buffer))
-                            return await hasher.digest()
-                        })
-                }
+                    get digest() {
+                        return this._digest ??= Promise.resolve(createHasher())
+                            .then(async hasher => {
+                                await hasher.init?.()
+                                await hasher.update(new Uint8Array(await buffer))
+                                return await hasher.digest()
+                            })
+                    },
+                } satisfies Chunk
             })
         } else if ('buffer' in file) {
             this.#chunks = Array.from({ length: this.#total }, (_, index) => {
                 const start = index * this.options.chunkSize
                 const end = Math.min(start + this.options.chunkSize, file.size)
                 const buffer = file.buffer.slice(start, end)
+                const createHasher = this.options.createHasher
                 return {
                     index, buffer, start, end, status: 'idle', response: undefined,
-                    digest: new Promise((resolve) => {
-                        const hasher = this.options.createHasher() as Hasher
-                        hasher.init?.()
-                        hasher.update(new Uint8Array(buffer))
-                        resolve(hasher.digest())
-                    })
-                    // digest: Promise.resolve(this.options.createHasher())
-                    //     .then(async hasher => {
-                    //         await hasher.init?.()
-                    //         await hasher.update(new Uint8Array(buffer))
-                    //         return await hasher.digest()
-                    //     })
-                }
+                    get digest() {
+                        return this._digest ??= Promise.resolve(createHasher())
+                            .then(async hasher => {
+                                await hasher.init?.()
+                                await hasher.update(new Uint8Array(buffer))
+                                return await hasher.digest()
+                            })
+                    },
+                } satisfies Chunk
             })
         } else {
             this.#chunks = file.chunks
             this.#total = file.chunks.length
             this.#loaded = file.chunks.filter(chunk => chunk.status === 'success').length
         }
-
-        this.#digest = Promise.resolve(this.options.createHasher()).then(async hasher => {
-            if (hasher.init) {
-                await hasher.init()
-                hasher.init = undefined
-            }
-            for (const chunk of this.#chunks) {
-                await hasher.update(new Uint8Array(await chunk.buffer))
-                this.#hashLoaded++
-            }
-            return await hasher.digest()
-        })
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
 
@@ -295,6 +295,7 @@ export class ChunkedUploader extends EventTarget {
                 status: chunk.status === 'success' ? 'success' : 'idle',
                 digest: await chunk.digest
             }))),
+            digest: await this.digest,
         }
     }
 
@@ -368,8 +369,10 @@ interface Chunk {
     status: 'pending' | 'success' | 'idle'
     /** Response of chunk upload */
     response?: unknown
+    /** @private */
+    _digest?: string | Promise<string>
     /** Digest as a hexadecimal string */
-    digest: Promise<string> | string
+    readonly digest: string | Promise<string>
 }
 
 type FileInfo = Pick<File, 'name' | 'size'>
