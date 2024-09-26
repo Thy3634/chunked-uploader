@@ -51,7 +51,7 @@ export class ChunkedUploader extends EventTarget {
     #onLine: boolean
     /** Is network online. 
      * - When it is set to `false`, the upload will be paused. When it is set to `true`, the upload will be resumed. 
-     * - If `addEventListener` is available, automatically update, and pause/resume the upload.
+     * - If `window` is available, automatically update, and pause/resume the upload.
      * @default If `navigator` is available, use the value of `navigator.onLine`, otherwise `true`.
      */
     get onLine() { return this.#onLine }
@@ -124,27 +124,17 @@ export class ChunkedUploader extends EventTarget {
 
         this.#onLine = typeof navigator === 'undefined' ? true : navigator.onLine
 
-        if (typeof addEventListener === 'function') {
-            addEventListener('online', this.#ononline)
-            addEventListener('offline', this.#onoffline)
+        if (typeof window !== 'undefined') {
+            window.addEventListener('online', this.#ononline)
+            window.addEventListener('offline', this.#onoffline)
         }
     }
 
     /**
-     * Abort the upload, if it is not uploading, do nothing, otherwise:
-     * - property `status` will be set to 'error'
-     * - event `abort` will be dispatched
-     * - property `error` will be set to an `Error`
-     * @returns if the upload is aborted
+     * Abort the upload. Call `options.abortController.abort`
      */
     abort(reason?: any) {
-        if (this.#status !== 'pending') return false
         this.options.abortController.abort(reason)
-        if (typeof removeEventListener !== 'undefined') {
-            removeEventListener('online', this.#ononline)
-            removeEventListener('offline', this.#onoffline)
-        }
-        return true
     }
 
     /**
@@ -155,7 +145,7 @@ export class ChunkedUploader extends EventTarget {
      * @param skipIndexes indexes of chunks to skip
      */
     async start(skipIndexes?: Iterable<number>) {
-        if (this.#status !== 'idle') return
+        if (this.#status === 'pending') return
         for (const i of new Set(skipIndexes)) {
             if (this.#chunks[i]) this.#chunks[i].status = 'success'
         }
@@ -237,7 +227,7 @@ export class ChunkedUploader extends EventTarget {
      * @returns if the upload is paused, return the response array of chunks upload, otherwise return false
      */
     async resume() {
-        if (this.#status !== 'paused') return false
+        if (this.#status === 'pending' || this.#status === 'success') return false
         this.#error = undefined
         this.#dispatchEventByType('resume')
         return await this.#uploadChunks()
@@ -304,9 +294,9 @@ export class ChunkedUploader extends EventTarget {
      * remove online/offline event listeners
      */
     destroy() {
-        if (typeof removeEventListener === 'function') {
-            removeEventListener('online', this.#ononline)
-            removeEventListener('offline', this.#onoffline)
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('online', this.#ononline)
+            window.removeEventListener('offline', this.#onoffline)
         }
     }
 }

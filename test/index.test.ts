@@ -16,30 +16,41 @@ import { openAsBlob } from "node:fs"
 import { router } from "../app"
 import { hexStringToBase64 } from "../src/utils"
 
-const listeners = new Map<string, Set<EventListener>>()
-
-vi.stubGlobal('navigator', {
+const navigator = {
     onLine: true,
     hardwareConcurrency: 4,
-})
+}
 
-vi.stubGlobal('window', {
-    addEventListener(type: string, listener: EventListener) {
-        if (listeners.has(type)) listeners.get(type)!.add(listener)
-        else listeners.set(type, new Set([listener]))
-    },
-    removeEventListener(type: string, listener: EventListener) {
-        listeners.get(type)?.delete(listener)
+class MWindow extends EventTarget {
+    dispatchEvent(event: Event): boolean {
+        // switch (event.type) {
+        //     case 'online': {
+        //         navigator.onLine = true
+        //         break;
+        //     }
+        //     case 'offline': {
+        //         navigator.onLine = false
+        //         break;
+        //     }
+        //     default: {
+        //         break
+        //     }
+        // }
+        return super.dispatchEvent(event)
     }
-})
+}
+const window = new MWindow() as Window
 
+vi.stubGlobal('navigator', navigator)
+
+vi.stubGlobal('window', window)
 
 describe('chunked uploader', { timeout: 20_000 }, () => {
     let listener: Listener;
     const getURL = (url: string) => joinURL(listener.url, url)
     function getRequester(id: string) {
         return async ({ index, buffer, start, end }) => ofetch(getURL(joinURL('chunked-upload', id, index.toString())), {
-            method: 'POST',
+            method: 'PUT',
             body: await buffer,
             headers: {
                 'Range': `bytes=${start}-${end - 1}`,
@@ -99,6 +110,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         uploader.onLine = false
 
         const response = await uploader.start()
+        expect(uploader.status).toBe('paused')
         expect(response).toBeFalsy()
     })
 
@@ -112,17 +124,11 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         })
         const uploader = new ChunkedUploader(file, getRequester(id))
 
+        window.dispatchEvent(new Event('offline'))
         uploader.start()
-        if (listeners.has('offline'))
-            for (const listener of listeners.get('offline')!) {
-                listener.call(navigator, new Event('offline'))
-            }
         expect(uploader.status).toBe('paused')
 
-        if (listeners.has('online'))
-            for (const listener of listeners.get('online')!) {
-                listener.call(navigator, new Event('online'))
-            }
+        window.dispatchEvent(new Event('online'))
         await new Promise((resolve) => uploader.addEventListener('success', resolve))
 
         expect(uploader.status).toBe('success')
@@ -137,7 +143,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
                 name: file.name
             }
         })
-        const uploader = new ChunkedUploader(file, getRequester(id))
+        const uploader = new ChunkedUploader(file, getRequester(id), { limit: 8 })
 
         uploader.start()
         expect(uploader.status).toBe('pending')
@@ -161,9 +167,7 @@ describe('chunked uploader', { timeout: 20_000 }, () => {
         const uploader = new ChunkedUploader(file, getRequester(id))
         await getRequester(id)(uploader.chunks[0])
         const uploader2 = new ChunkedUploader(await uploader.store(), getRequester(id))
-        uploader2.start([0])
-        expect(uploader2.chunks[0].status).toBe('success')
-        await new Promise((resolve) => uploader2.onsuccess = resolve)
+        await uploader2.start([0])
         expect(await uploader2.digest).toBe(await md5(new Uint8Array(await (await openAsBlob(resolve(__root, '.temp', `${id}.jpg`))).arrayBuffer())))
     })
 })

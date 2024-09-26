@@ -20,9 +20,7 @@ import { hexStringToBase64 } from './src/utils'
 interface Conf {
     size: number
     name: string
-    receivedIndexes: number[]
-    chunkSize: number
-    digest?: string
+    chunkSize?: number
 }
 
 export const app = createApp({
@@ -48,14 +46,13 @@ export const router = createRouter()
         eventHandler(async (event) => {
             const { size, name, chunkSize } = await readBody<Conf>(event)
             if (typeof size !== 'number') return createError({ status: 400, message: 'file size is not number' })
-            if (typeof chunkSize !== 'number') return createError({ status: 400, message: 'chunk size is not number' })
+            // if (typeof chunkSize !== 'number') return createError({ status: 400, message: 'chunk size is not number' })
 
             const id = crypto.randomUUID()
             setHeader(event, 'ETag', id)
             await uploadSessionStorage.set(id, {
                 size: size,
                 name: name,
-                receivedIndexes: [],
                 chunkSize,
             })
             return { id }
@@ -99,12 +96,6 @@ export const router = createRouter()
                 })
             })
 
-            // const receivedIndexesSet = new Set([...conf.receivedIndexes, index])
-            // if (receivedIndexesSet.size >= Math.ceil(conf.size / conf.chunkSize)) {
-            //     await uploadSessionStorage.remove(id)
-            //     return { index, completed: true }
-            // }
-            // await uploadSessionStorage.set(id, { ...conf, receivedIndexes: [...receivedIndexesSet] })
             return { index }
         })
     )
