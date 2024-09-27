@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.1.0
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.6...v0.1.0)
+
+## v0.1.0
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.6...v0.1.0)
+
+## v0.0.8
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.6...v0.0.8)
+
+## v0.0.7
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.6...v0.0.7)
+
 ## v0.0.6
 
 [compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.5...v0.0.6)
