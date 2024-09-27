@@ -1,6 +1,40 @@
 # Changelog
 
 
+## v0.0.5
+
+[compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.4...v0.0.5)
+
+### 🚀 Enhancements
+
+- Fully custom requester ([d98f138](https://github.com/Thy3634/chunked-uploader/commit/d98f138))
+- Change example into master-workers ([5cbbcc5](https://github.com/Thy3634/chunked-uploader/commit/5cbbcc5))
+- Add method destroy, add option abortController ([dd53d07](https://github.com/Thy3634/chunked-uploader/commit/dd53d07))
+- Make get digest lazy ([0e7a396](https://github.com/Thy3634/chunked-uploader/commit/0e7a396))
+
+### 🩹 Fixes
+
+- Upload twice ([4afa8a2](https://github.com/Thy3634/chunked-uploader/commit/4afa8a2))
+- Chunk status ([88f82d0](https://github.com/Thy3634/chunked-uploader/commit/88f82d0))
+- Pause not work. when pause resume, loaded not correct ([6e30a6d](https://github.com/Thy3634/chunked-uploader/commit/6e30a6d))
+
+### 💅 Refactors
+
+- Expose some properties ([2dd0811](https://github.com/Thy3634/chunked-uploader/commit/2dd0811))
+
+### 📖 Documentation
+
+- README ([81e9c55](https://github.com/Thy3634/chunked-uploader/commit/81e9c55))
+
+### ✅ Tests
+
+- Use EventTarget as window ([3a0ae01](https://github.com/Thy3634/chunked-uploader/commit/3a0ae01))
+- Exclude other ([e7ddc63](https://github.com/Thy3634/chunked-uploader/commit/e7ddc63))
+
+### ❤️ Contributors
+
+- Thy3634 <thy3634@qq.com>
+
 ## v0.0.4
 
 [compare changes](https://github.com/Thy3634/chunked-uploader/compare/v0.0.3...v0.0.4)
