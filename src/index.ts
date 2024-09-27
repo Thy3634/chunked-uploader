@@ -350,15 +350,15 @@ type ChunkedUploaderOptions = {
 interface Chunk {
     /** The index of the chunk in the sequence of chunks that make up the file. */
     index: number
-    /** The data from a subset of the file as an `ArrayBuffer`. */
+    /** The data as an `ArrayBuffer`. */
     buffer: Promise<ArrayBuffer> | ArrayBuffer
     /** An index into the file indicating the first byte to include in the buffer. */
     start: number
     /** An index into the file indicating the first byte that will not be included in the buffer (i.e. the byte exactly at this index is not included). */
     end: number
-    /** The uploading status of this chunk. when error occurred, reset to 'idle' */
+    /** The uploading status of this chunk. when error occurred, reset to 'idle'. */
     status: 'pending' | 'success' | 'idle'
-    /** Response of chunk upload */
+    /** Response of chunk upload request. */
     response?: unknown
     /** @private */
     _digest?: string | Promise<string>

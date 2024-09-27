@@ -73,7 +73,7 @@ import { ChunkedUploader } from "https://esm.sh/@thy3634/chunked-uploader";
 
 ```js
 // usually you need to get a upload ID from server
-const { id } = await ofetch(getURL('/chunked-upload'), {
+const { id } = await ofetch('/api/chunked-upload', {
     method: 'POST',
     body: {
         fileSize: file.size,
@@ -81,19 +81,27 @@ const { id } = await ofetch(getURL('/chunked-upload'), {
     }
 })
 // create a new instance of ChunkedUploader
-const uploader = new ChunkedUploader(file, ({ index }) => getURL(joinURL('chunked-upload', id, index.toString())))
+const uploader = new ChunkedUploader(file, async ({ buffer, index, start, end, digest }) => ofetch(`/chunked-upload/${id}/${index}`, {
+                method: 'PUT',
+                body: await buffer,
+                headers: {
+                    'Range': `bytes=${start}-${end - 1}`,
+                    'Content-Digest': `md5=:${hexStringToBase64(await digest)}:`,
+                },
+                retry: 1,
+            }))
 ```
 
 2. Listen to events:
 
 ```js
-uploader.on('progress', ({ loaded, total }) => {
+uploader.addEventListener('progress', ({ loaded, total }) => {
     console.log(`progress: ${loaded}/${total}`)
 })
-uploader.on('error', (event) => {
+uploader.addEventListener('error', (event) => {
     console.error(uploader.error)
 })
-uploader.on('success', (event) => {
+uploader.addEventListener('success', (event) => {
     console.log('success')
 })
 ```
@@ -117,7 +125,7 @@ await uploader.start()
 | Property | Type | Description |
 | --- | --- | --- |
 | file | [`File`](https://developer.mozilla.org/zh-CN/docs/Web/API/File) \| `FileInfo & { chunks: Chunk[] }` | The file to upload, or an object containing the file's information and an array of chunks |
-| requester | `(chunk: Chunk, fileInfo: FileInfo) => Promise<unknown>` | A function that returns response based on each chunk and file information |
+| requester | `(chunk: Chunk) => Promise<unknown>` | A function that returns response based on each chunk and file information |
 | options | [`ChunkedUploaderOptions`](#ChunkedUploaderOptions) | Optional parameters to customize the uploader |
 
 #### Methods and Properties
@@ -130,7 +138,7 @@ Start the upload, if the upload is already started, do nothing, otherwise:
 ###### Parameters
 | Name | Type | Description |
 | --- | --- | --- |
-| skipIndexes | `number[]` | indexes of chunks to skip |
+| skipIndexes | `number[] \| undefined` | indexes of chunks to skip |
 
 ##### `pause(): boolean`
 Pause the upload, if it is not uploading, do nothing, otherwise:
@@ -184,15 +192,16 @@ Abort the upload, if it is not uploading, do nothing, otherwise:
 - `error`: dispatched when an error occurs during the upload.
 - `success`: dispatched when the upload completes successfully.
 - `end`: dispatched when the upload has completed, successfully or not.
+- `digestprogress`: Fired periodically as file digesting
 
 ```js
 // you can listen to these events using the `on${EventType}` method:
-uploader.onsuccess = (event) => {
-    console.log('success')
+uploader.onpregress = (event) => {
+    console.log('progress', event.loaded / event.total)
 }
 // or using the `addEventListener` method:
-uploader.addEventListener('success', (event) => {
-    console.log('success')
+uploader.addEventListener('digestprogress', (event) => {
+    console.log('digestprogress', event.loaded / event.total)
 })
 ```
 
@@ -204,10 +213,10 @@ uploader.addEventListener('success', (event) => {
 | --- | --- | --- | --- |
 | chunkSize | `number` | The size of each chunk in bytes. | 1024 * 1024 * 5 |
 | limit | `number` | The maximum number of concurrent requests. | Infinity |
-| createHasher | `() => Promise<Hasher> | Hasher` | The hasher to use for calculating the hash of the file's data. | [hash-wasm](https://github.com/Daninet/hash-wasm)`createMD5` |
+| createHasher | `() => Promise<Hasher> \| Hasher` | The hasher to use for calculating the hash of the file's data. | [hash-wasm](https://github.com/Daninet/hash-wasm)`createMD5` |
 | abortController | `AbortController` |  The controller to use for aborting the upload. | `new AbortController()` |
 
-> Http Header in default headers:
+> Http headers suggestions:
 > - [Range](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Range)
 > - [Content-Digest](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Digest)
 
@@ -215,27 +224,27 @@ uploader.addEventListener('success', (event) => {
 
 | Property | Type | Description |
 | --- | --- | --- |
-| index | `number` | The index of the chunk |
-| start | `number` | The start byte of the chunk |
-| end | `number` | The end byte of the chunk, exclusive |
-| buffer | [`ArrayBuffer \| Promise<ArrayBuffer>`](https://developer.mozilla.org/en-US/docs/Web/API/ArrayBuffer) | The blob of the chunk |
+| index | `number` | The index of the chunk in the sequence of chunks that make up the file. |
+| start | `number` | An index into the file indicating the first byte to include in the buffer. |
+| end | `number` | An index into the file indicating the first byte that will not be included in the buffer (i.e. the byte exactly at this index is not included). |
+| buffer | [`ArrayBuffer \| Promise<ArrayBuffer>`](https://developer.mozilla.org/en-US/docs/Web/API/ArrayBuffer) | The data. |
 | status | `'idle' \| 'pending' \| 'success'` | The status of the chunk |
-| response | `undefined \| unknown` | The response of the chunk's upload request |
-| digest | `Promise<string> \| string` | digest as a hexadecimal string |
+| response | `unknown` | The response of the chunk's upload request |
+| digest | `Promise<string> \| string` | A digest as a hexadecimal string |
 
 #### `FileInfo`
 
 | Property | Type | Description |
 | --- | --- | --- |
-| name | `string` | The name of the file |
+| name | `string \| undefined` | The name of the file |
 | size | `number` | The size of the file in bytes |
 
 #### `Hasher`
 
 | Property | Type | Description |
 | --- | --- | --- |
-| init | `undefined \| () => void \| Promise<void> | Initiate |
-| update | `(data: Uint8Array) => void \| Promise<void>` | Update the hasher with a chunk of data. |
+| init | `(() => any) \| undefined` | Initiate |
+| update | `(data: Uint8Array \| Uint16Array \| Uint32Array \| string) => any` | Update the hasher with a chunk of data. |
 | digest | `() => Promise<string>` | Get the hash as a hexadecimal string. |
 
 ## Development
